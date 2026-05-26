@@ -36,6 +36,7 @@ val optimizedJvmArgs = listOf(
     "-XX:MaxMetaspaceSize=128M"
 )
 tasks.register<Exec>("packageNative") {
+    notCompatibleWithConfigurationCache("Usa ProcessBuilder e referências dinâmicas")
     group = "distribution"
     description = "Gera executável nativo único com JRE embutida (Warp para Win, SFX para Unix)"
     dependsOn("shadowJar")
