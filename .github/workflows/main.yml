@@ -28,37 +28,23 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           git fetch --tags --quiet
-          
           LATEST_STABLE=$(git tag --list --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
           
-          if [ -z "$LATEST_STABLE" ]; then
-            BASE_TAG="0.0.1"
-            HAS_STABLE=false
-          else
-            BASE_TAG="$LATEST_STABLE"
-            HAS_STABLE=true
-          fi
+          if [ -z "$LATEST_STABLE" ]; then BASE_TAG="0.0.1"; HAS_STABLE=false; else BASE_TAG="$LATEST_STABLE"; HAS_STABLE=true; fi
           
           IFS='.' read -r -a VERSION_PARTS <<< "$BASE_TAG"
-          MAJOR="${VERSION_PARTS[0]}"
-          MINOR="${VERSION_PARTS[1]}"
-          PATCH="${VERSION_PARTS[2]}"
+          MAJOR="${VERSION_PARTS[0]}"; MINOR="${VERSION_PARTS[1]}"; PATCH="${VERSION_PARTS[2]}"
           
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           
           if [[ "$COMMIT_MSG" =~ release\ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            FINAL_TAG="${BASH_REMATCH[1]}"
-            IS_LATEST="true"
-            IS_CANARY="false"
+            FINAL_TAG="${BASH_REMATCH[1]}"; IS_LATEST="true"; IS_CANARY="false"
           elif [[ "$BRANCH_NAME" == "canary" ]]; then
-            FINAL_TAG="$MAJOR.$MINOR.$PATCH-canary"
-            IS_CANARY="true"
+            FINAL_TAG="$MAJOR.$MINOR.$PATCH-canary"; IS_CANARY="true"
             if [ "$HAS_STABLE" = false ]; then IS_LATEST="true"; else IS_LATEST="false"; fi
           else
             if [ "$HAS_STABLE" = true ]; then PATCH=$((PATCH + 1)); fi
-            FINAL_TAG="$MAJOR.$MINOR.$PATCH"
-            IS_LATEST="true"
-            IS_CANARY="false"
+            FINAL_TAG="$MAJOR.$MINOR.$PATCH"; IS_LATEST="true"; IS_CANARY="false"
           fi
           
           echo "TAG_NAME=$FINAL_TAG" >> $GITHUB_OUTPUT
@@ -68,17 +54,20 @@ jobs:
   build:
     needs: versioning
     strategy:
-      # A Mágica do ARM64 acontece AQUI!
       matrix:
         include:
-          - os: ubuntu-latest
-            name: linux-x64
+          # Windows x64
           - os: windows-latest
             name: windows-x64
-          - os: macos-13
-            name: macos-x64 # macos-13 usa processador Intel
+          # Linux x64
+          - os: ubuntu-latest
+            name: linux-x64
+          # Linux arm64 (Rodando nativo nos novos runners ARM da nuvem do Github)
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+          # macOS arm64 (Rodando nativo nos runners M1 do Github)
           - os: macos-latest
-            name: macos-arm64 # macos-latest usa os novos Apple Silicon (M1)
+            name: macos-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -98,7 +87,6 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build Native Standalone
-        # O jpackage vai ler o sistema da matrix e compilar certo pra ele!
         run: ./gradlew packageNative --no-daemon
 
       - name: Rename Executables for Release
@@ -149,7 +137,7 @@ jobs:
           files: |
             ./artifacts/Plume-windows-x64.exe
             ./artifacts/Plume-linux-x64
-            ./artifacts/Plume-macos-x64
+            ./artifacts/Plume-linux-arm64
             ./artifacts/Plume-macos-arm64
           generate_release_notes: true
           make_latest: ${{ needs.versioning.outputs.IS_LATEST == 'true' }}

@@ -37,7 +37,7 @@ val optimizedJvmArgs = listOf(
 )
 tasks.register<Exec>("packageNative") {
     group = "distribution"
-    description = "Gera executável nativo único com JRE embutida usando WARP (Com Ícone e Sem Admin)"
+    description = "Gera executável nativo único com JRE embutida (Warp para Win, SFX para Unix)"
     dependsOn("shadowJar")
 
     val shadowJarTask = tasks.shadowJar.get()
@@ -95,7 +95,6 @@ tasks.register<Exec>("packageNative") {
     }
 
     val iconFile = layout.projectDirectory.file("src/resources/" + if (isWindows) "icon.ico" else "icon.png").asFile
-
     if (iconFile.exists()) {
         jpackageArgs.add("--icon")
         jpackageArgs.add(iconFile.absolutePath)
@@ -104,89 +103,75 @@ tasks.register<Exec>("packageNative") {
     commandLine(jpackageArgs)
 
     doLast {
-        println(iconFile.path)
-        println("=== Empacotando com WARP ===")
-
-        val warpVersion = "v0.3.0"
-        val warpOs = if (isWindows) "windows-x64" else if (isMac) "macos-x64" else "linux-x64"
-        val warpExeName = if (isWindows) "warp-packer.exe" else "warp-packer"
-        val warpTool = File(layout.buildDirectory.asFile.get(), warpExeName)
-
-        if (!warpTool.exists()) {
-            println("📥 Baixando warp-packer ($warpOs)...")
-            val warpDownloadUrl = "https://github.com/dgiagio/warp/releases/download/$warpVersion/$warpOs.warp-packer${if (isWindows) ".exe" else ""}"
-            warpTool.writeBytes(URL(warpDownloadUrl).readBytes())
-            warpTool.setExecutable(true)
-        }
-
-        // --- MÁGICA PARA WINDOWS: ÍCONE E REMOÇÃO DE PRIVILÉGIO ADMINISTRADOR ---
-        if (isWindows) {
-            val rceditTool = File(layout.buildDirectory.asFile.get(), "rcedit-x64.exe")
-            if (!rceditTool.exists()) {
-                println("📥 Baixando rcedit para injetar o ícone...")
-                rceditTool.writeBytes(URL("https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe").readBytes())
-            }
-
-            // Cria o manifesto forçando 'asInvoker' (Sem Admin)
-            val manifestFile = File(layout.buildDirectory.asFile.get(), "manifest.xml")
-            manifestFile.writeText(
-                """
-                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-                <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-                  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-                    <security>
-                      <requestedPrivileges>
-                        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
-                      </requestedPrivileges>
-                    </security>
-                  </trustInfo>
-                </assembly>
-                """.trimIndent()
-            )
-
-            println("🔧 Injetando ícone e manifesto no Warp Runner...")
-            val rceditArgs = mutableListOf(rceditTool.absolutePath, warpTool.absolutePath, "--application-manifest", manifestFile.absolutePath)
-
-            if (iconFile.exists()) {
-                rceditArgs.add("--set-icon")
-                rceditArgs.add(iconFile.absolutePath)
-            }
-
-            ProcessBuilder(rceditArgs).start().waitFor()
-            manifestFile.delete()
-        }
-        // ------------------------------------------------------------------------
-
-        val execInsideDir = when {
-            isWindows -> "$appName.exe"
-            isMac -> "Contents/MacOS/$appName"
-            else -> "bin/$appName"
-        }
-
         val finalStandalone = File(outputDir, if (isWindows) "Plume-Standalone.exe" else "Plume-Standalone")
         if (finalStandalone.exists()) finalStandalone.delete()
 
-        val warpArgs = listOf(
-            warpTool.absolutePath,
-            "--arch", warpOs,
-            "--input_dir", finalAppDir.absolutePath,
-            "--exec", execInsideDir,
-            "--output", finalStandalone.absolutePath
-        )
+        if (isWindows) {
+            println("=== Empacotando com WARP (Windows) ===")
+            val warpVersion = "v0.3.0"
+            val warpTool = File(layout.buildDirectory.asFile.get(), "warp-packer.exe")
 
-        try {
-            val exitCode = ProcessBuilder(warpArgs).inheritIO().start().waitFor()
-            if (exitCode == 0) {
-                if (isWindows) ProcessBuilder("cmd", "/c", "rmdir", "/s", "/q", finalAppDir.absolutePath).start()
-                else ProcessBuilder("rm", "-rf", finalAppDir.absolutePath).start()
-
-                println("✨ VITÓRIA! Arquivo ÚNICO (Sem pedir admin e com seu ícone):")
-                println("👉 ${finalStandalone.absolutePath}")
-            } else {
-                throw GradleException("Warp falhou com código $exitCode")
+            if (!warpTool.exists()) {
+                warpTool.writeBytes(URL("https://github.com/dgiagio/warp/releases/download/$warpVersion/windows-x64.warp-packer.exe").readBytes())
+                warpTool.setExecutable(true)
             }
-        } catch (e: Exception) {
-            throw GradleException("❌ Erro ao rodar o Warp: ${e.message}")
+
+            val rceditTool = File(layout.buildDirectory.asFile.get(), "rcedit-x64.exe")
+            if (!rceditTool.exists()) {
+                rceditTool.writeBytes(URL("https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe").readBytes())
+            }
+
+            val manifestFile = File(layout.buildDirectory.asFile.get(), "manifest.xml")
+            manifestFile.writeText("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><trustInfo xmlns="urn:schemas-microsoft-com:asm.v3"><security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security></trustInfo></assembly>""")
+
+            val rceditArgs = mutableListOf(rceditTool.absolutePath, warpTool.absolutePath, "--application-manifest", manifestFile.absolutePath)
+            if (iconFile.exists()) { rceditArgs.add("--set-icon"); rceditArgs.add(iconFile.absolutePath) }
+
+            ProcessBuilder(rceditArgs).start().waitFor()
+            manifestFile.delete()
+
+            val warpArgs = listOf(warpTool.absolutePath, "--arch", "windows-x64", "--input_dir", finalAppDir.absolutePath, "--exec", "$appName.exe", "--output", finalStandalone.absolutePath)
+
+            if (ProcessBuilder(warpArgs).inheritIO().start().waitFor() == 0) {
+                ProcessBuilder("cmd", "/c", "rmdir", "/s", "/q", finalAppDir.absolutePath).start()
+                println("✨ VITÓRIA! Arquivo .exe único gerado em: ${finalStandalone.absolutePath}")
+            }
+        } else {
+            println("=== Empacotando com BASH SFX (Linux/macOS - $cleanArch) ===")
+
+            val archiveTar = File(outputDir, "temp_archive.tar.gz")
+            ProcessBuilder("tar", "-czf", archiveTar.absolutePath, "-C", outputDir.absolutePath, finalAppDir.name).start().waitFor()
+
+            if (archiveTar.exists()) {
+                val scriptContent = """
+                #!/bin/bash
+                TMPDIR=${'$'}(mktemp -d /tmp/plume.XXXXXX)
+                ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "${'$'}0"`
+                tail -n+${'$'}ARCHIVE "${'$'}0" | tar xz -C "${'$'}TMPDIR"
+                
+                if [ -d "${'$'}TMPDIR/$appName.app" ]; then
+                    "${'$'}TMPDIR/$appName.app/Contents/MacOS/$appName"
+                else
+                    "${'$'}TMPDIR/$appName/bin/$appName"
+                fi
+                
+                EXIT_CODE=${'$'}?
+                rm -rf "${'$'}TMPDIR"
+                exit ${'$'}EXIT_CODE
+                __ARCHIVE_BELOW__
+                """.trimIndent() + "\n"
+
+                finalStandalone.outputStream().use { output ->
+                    output.write(scriptContent.toByteArray(Charsets.UTF_8))
+                    output.write(archiveTar.readBytes())
+                }
+
+                ProcessBuilder("chmod", "+x", finalStandalone.absolutePath).start().waitFor()
+                archiveTar.delete()
+                ProcessBuilder("rm", "-rf", finalAppDir.absolutePath).start()
+
+                println("✨ VITÓRIA! Binário único Unix gerado em: ${finalStandalone.absolutePath}")
+            }
         }
     }
 }
