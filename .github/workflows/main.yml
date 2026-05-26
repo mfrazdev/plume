@@ -92,11 +92,11 @@ jobs:
       - name: Rename Executables for Release
         shell: bash
         run: |
-          if [ "${{ runner.os }}" == "Windows" ]; then
-            mv **/builds/**/Plume-Standalone.exe Plume-${{ matrix.name }}.exe
-          else
-            mv **/builds/**/Plume-Standalone Plume-${{ matrix.name }}
-          fi
+            if [ "${{ runner.os }}" == "Windows" ]; then
+              find . -type f -name "Plume-Standalone.exe" -exec mv {} Plume-${{ matrix.name }}.exe \;
+            else
+              find . -type f -name "Plume-Standalone" -exec mv {} Plume-${{ matrix.name }} \;
+            fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

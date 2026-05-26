@@ -47,6 +47,9 @@ tasks.register<Exec>("packageNative") {
 
     val jpackageInputDir = layout.buildDirectory.dir("jpackage-input").get().asFile
 
+    // CORREÇÃO 1: Pegar o diretório raiz do build FORA dos blocos de execução para o Gradle não reclamar do cache
+    val baseBuildDir = layout.buildDirectory.get().asFile
+
     val osName = System.getProperty("os.name").lowercase()
     val isWindows = osName.contains("win")
     val isMac = osName.contains("mac")
@@ -110,19 +113,21 @@ tasks.register<Exec>("packageNative") {
         if (isWindows) {
             println("=== Empacotando com WARP (Windows) ===")
             val warpVersion = "v0.3.0"
-            val warpTool = File(layout.buildDirectory.asFile.get(), "warp-packer.exe")
+
+            // CORREÇÃO 1.2: Usando a variável isolada pra evitar erro de serialização do Gradle
+            val warpTool = File(baseBuildDir, "warp-packer.exe")
 
             if (!warpTool.exists()) {
                 warpTool.writeBytes(URL("https://github.com/dgiagio/warp/releases/download/$warpVersion/windows-x64.warp-packer.exe").readBytes())
                 warpTool.setExecutable(true)
             }
 
-            val rceditTool = File(layout.buildDirectory.asFile.get(), "rcedit-x64.exe")
+            val rceditTool = File(baseBuildDir, "rcedit-x64.exe")
             if (!rceditTool.exists()) {
                 rceditTool.writeBytes(URL("https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe").readBytes())
             }
 
-            val manifestFile = File(layout.buildDirectory.asFile.get(), "manifest.xml")
+            val manifestFile = File(baseBuildDir, "manifest.xml")
             manifestFile.writeText("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><trustInfo xmlns="urn:schemas-microsoft-com:asm.v3"><security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security></trustInfo></assembly>""")
 
             val rceditArgs = mutableListOf(rceditTool.absolutePath, warpTool.absolutePath, "--application-manifest", manifestFile.absolutePath)
