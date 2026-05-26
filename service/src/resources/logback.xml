@@ -1,0 +1,17 @@
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%cyan(%d{HH:mm:ss}) %highlight(%-5level) %yellow(%logger{36}) %gray(|) %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+    <logger name="org.apache.sshd" level="OFF"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="io.ktor.server.Application" level="OFF"/>
+    <logger name="org.apache.hc" level="WARN"/>
+
+    <logger name="org.apache.hc.client5.http.wire" level="OFF"/>
+</configuration>

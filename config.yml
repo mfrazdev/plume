@@ -1,0 +1,16 @@
+app:
+  id: "2"
+  port: 8080
+  path: "C:/var/lib/feather"
+
+sftp:
+  port: 2022
+
+ssl:
+  enabled: false
+  certPath: "./localhost.pem"
+  keyPath: "./localhost-key.pem"
+
+remote:
+  url: "http://localhost:8000"
+  token: "f97dfb53-773e-4932-9dcc-1dee03be5cbd"
