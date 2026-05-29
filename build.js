@@ -17,7 +17,6 @@ if (!fs.existsSync(outDir)) {
 }
 
 // Alvos do Rust (Target Triples)
-// O Rust suporta essas compilações cruzadas nativamente através do Cargo
 const targets = [
     { id: 'windows-amd64', rustTarget: 'x86_64-pc-windows-msvc', ext: 'lib', prefix: '', dotnetRid: 'win-x64' },
     { id: 'linux-amd64',   rustTarget: 'x86_64-unknown-linux-gnu', ext: 'a', prefix: 'lib', dotnetRid: 'linux-x64' },
@@ -43,14 +42,14 @@ for (let i = 0; i < args.length; i++) {
 let targetsToBuild = distroFilter ? targets.filter(t => t.id === distroFilter) : targets;
 
 console.log(`${CYAN}===================================================${NC}`);
-console.log(`${CYAN}  Iniciando compilação do ecossistema PlumeSFTP (Rust)${NC}`);
+console.log(`${CYAN}   Iniciando compilação do ecossistema PlumeSFTP (Rust)${NC}`);
 console.log(`${CYAN}===================================================${NC}\n`);
 
-for (const t of targetsToBuild) {
-    // O nome que queremos no final
-    const finalOutFile = path.join(outDir, `plumesftp-${t.id}.${t.ext}`);
+// Guarda o último código de erro encontrado (0 significa sucesso)
+let exitCode = 0;
 
-    // Onde o Rust vai cuspir o arquivo temporariamente
+for (const t of targetsToBuild) {
+    const finalOutFile = path.join(outDir, `plumesftp-${t.id}.${t.ext}`);
     const rustFileName = `${t.prefix}plume_sftp_core.${t.ext}`;
     const rustOutPath = path.join(rustProjectDir, 'target', t.rustTarget, 'release', rustFileName);
 
@@ -59,17 +58,11 @@ for (const t of targetsToBuild) {
     try {
         if (buildRust) {
             console.log(`   [*] Compilando biblioteca estática em Rust (${t.rustTarget})...`);
-
-            // Garantimos que o target do Rust está instalado
             execSync(`rustup target add ${t.rustTarget}`, { stdio: 'pipe' });
 
-            // Compila o projeto Rust otimizado para Release
-            // (Nota: se você for compilar para Linux a partir do Windows, 
-            // basta usar o 'cargo-zigbuild', que usa o Zig como linker!)
             const buildCmd = `cargo build --release --target ${t.rustTarget}`;
             execSync(buildCmd, { cwd: rustProjectDir, stdio: 'inherit' });
 
-            // Copia o .a ou .lib gerado para a pasta de binários final
             if (fs.existsSync(rustOutPath)) {
                 fs.copyFileSync(rustOutPath, finalOutFile);
                 console.log(`${GREEN}   [OK] Sucesso (Rust -> Estático): ${finalOutFile}${NC}`);
@@ -80,14 +73,36 @@ for (const t of targetsToBuild) {
 
         if (buildCsharp) {
             console.log(`   [*] Compilando C# NativeAOT para ${t.dotnetRid}...`);
-            const dotnetCmd = `dotnet publish "${csprojPath}" -c Release -r ${t.dotnetRid}`;
+            
+            // Se for compilação cruzada para Linux ARM64, força o uso do objcopy correto
+            let extraArgs = '';
+            if (t.id === 'linux-arm64') {
+                extraArgs = ' -p:ObjCopyName=aarch64-linux-gnu-objcopy';
+            }
+
+            const dotnetCmd = `dotnet publish "${csprojPath}" -c Release -r ${t.dotnetRid}${extraArgs}`;
             execSync(dotnetCmd, { stdio: 'inherit' });
             console.log(`${GREEN}   [OK] Sucesso (C#): Publicado para ${t.dotnetRid}${NC}`);
         }
 
     } catch (error) {
-        console.error(`${RED}   [ERRO] Falha ao processar ${t.id}:${NC}`);
+        // Pega o status do processo que falhou (se existir), senão joga 1 por padrão
+        exitCode = error.status !== undefined ? error.status : 1;
+        
+        console.error(`${RED}   [ERRO] Falha ao processar ${t.id} (Código: ${exitCode}):${NC}`);
         console.error(error.stderr ? error.stderr.toString() : error.message);
     }
     console.log("");
 }
+
+// Se o exitCode mudou durante o loop, encerra passando o código exato do erro
+if (exitCode !== 0) {
+    console.error(`${RED}===================================================${NC}`);
+    console.error(`${RED}   A compilação falhou! Saindo com código: ${exitCode}${NC}`);
+    console.error(`${RED}===================================================${NC}`);
+    process.exit(exitCode);
+}
+
+console.log(`${GREEN}===================================================${NC}`);
+console.log(`${GREEN}   Todo o ecossistema foi compilado com sucesso!${NC}`);
+console.log(`${GREEN}===================================================${NC}`);

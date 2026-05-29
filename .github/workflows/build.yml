@@ -120,7 +120,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
-          if [[ "${{ matrix.distro }}" == "linux-arm64" ]]; then sudo apt-get install -y gcc-aarch64-linux-gnu; fi
+          if [[ "${{ matrix.distro }}" == "linux-arm64" ]]; then sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu; fi
           if [[ "${{ matrix.distro }}" == "alpine-amd64" ]]; then sudo apt-get install -y musl-tools; fi
 
       # ------------------------------------------
@@ -144,9 +144,7 @@ jobs:
         run: |
           if [ "${{ steps.cache-sftp.outputs.cache-hit }}" == "true" ]; then
             echo "Cache dos binários do SFTP encontrado! Pulando o build completo..."
-            # Tirei a flag --all para rodar só a parte do C#. 
-            # Se seu build.js precisar de alguma flag específica para pular o Rust, é só trocar aqui tlgd.
-            node build.js --distro=${{ matrix.distro }}
+            node build.js --distro=${{ matrix.distro }} --csharp
           else
             echo "Nenhum cache válido encontrado (ou o código Rust mudou). Buildando tudo..."
             node build.js --distro=${{ matrix.distro }} --all
