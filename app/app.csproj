@@ -9,9 +9,14 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PublishAot>true</PublishAot>
         <StripSymbols>true</StripSymbols>
+        <DebugSymbols>false</DebugSymbols>
+        <DebugType>none</DebugType>
+        <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+        
+        <PublishIISAssets>false</PublishIISAssets>
 
         <AssemblyName>plume-$(RuntimeIdentifier)</AssemblyName>
-        <PublishDir>$(OutputPath)publish\</PublishDir>
+        <PublishDir>$(BaseOutputPath)$(Configuration)\publish\</PublishDir>
 
         <AnalysisLevel>none</AnalysisLevel>
         <NoWarn>$(NoWarn);CA1805;CA1816;CA2101;CA1848;CA1873;CA1866;CA1860;CA1310;CA1001;CA1305;CA2201;CA1304;CA1311;CA1835;CA1869;CA1847;CA1861;CA1854;CA1822;SYSLIB1054;CA1852;CA2254;SYSLIB1045;CA1826</NoWarn>
@@ -68,5 +73,12 @@
         <TrimmerRootAssembly Include="http" />
         <TrimmerRootAssembly Include="shared" />
     </ItemGroup>
+
+
+<Target Name="LimparPublishAot" AfterTargets="ComputeResolvedFilesToPublishList">
+        <ItemGroup>
+            <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb' Or '%(Extension)' == '.dll'" />
+        </ItemGroup>
+    </Target>
 
 </Project>

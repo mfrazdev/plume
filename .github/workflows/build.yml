@@ -123,10 +123,36 @@ jobs:
           if [[ "${{ matrix.distro }}" == "linux-arm64" ]]; then sudo apt-get install -y gcc-aarch64-linux-gnu; fi
           if [[ "${{ matrix.distro }}" == "alpine-amd64" ]]; then sudo apt-get install -y musl-tools; fi
 
-      - name: Build Rust and C# (using build.js)
-        run: node build.js --distro=${{ matrix.distro }} --all
+      # ------------------------------------------
+      # NOVO: Cache da pasta bin/sftp
+      # ------------------------------------------
+      - name: Cache SFTP Binaries
+        id: cache-sftp
+        uses: actions/cache@v4
+        with:
+          path: ./bin/sftp
+          # Se qualquer arquivo na pasta sftp/ mudar, o hash muda e ele invalida o cache
+          key: sftp-${{ matrix.rid }}-${{ hashFiles('sftp/**') }}
+          restore-keys: |
+            sftp-${{ matrix.rid }}-
 
-      # Zip atualizado para pegar da pasta final direta que configuramos no .csproj
+      # ------------------------------------------
+      # ATUALIZADO: Lógica condicional no build.js
+      # ------------------------------------------
+      - name: Build Rust and C# (using build.js)
+        shell: bash
+        run: |
+          if [ "${{ steps.cache-sftp.outputs.cache-hit }}" == "true" ]; then
+            echo "Cache dos binários do SFTP encontrado! Pulando o build completo..."
+            # Tirei a flag --all para rodar só a parte do C#. 
+            # Se seu build.js precisar de alguma flag específica para pular o Rust, é só trocar aqui tlgd.
+            node build.js --distro=${{ matrix.distro }}
+          else
+            echo "Nenhum cache válido encontrado (ou o código Rust mudou). Buildando tudo..."
+            node build.js --distro=${{ matrix.distro }} --all
+          fi
+
+      # Mantido o Pack Binary que vai pegar lá da pasta final certinha do publish
       - name: Pack Binary
         shell: bash
         run: |
@@ -143,7 +169,7 @@ jobs:
           retention-days: 1
 
   # ==========================================
-  # 3. JOB DE LANÇAMENTO (Release e Limpeza)
+  # 3. JOB DE LANÇAMENTO (Release no GitHub e Limpeza)
   # ==========================================
   release:
     needs: [versioning, build]
@@ -165,7 +191,6 @@ jobs:
           make_latest: ${{ needs.versioning.outputs.IS_LATEST }}
           prerelease: ${{ contains(needs.versioning.outputs.TAG_NAME, 'canary') }}
 
-      # Step novo: Deleta todos os artifacts gerados nessa run para não estourar o limite
       - name: Delete Artifacts
         uses: geekyeggo/delete-artifact@v5
         with:

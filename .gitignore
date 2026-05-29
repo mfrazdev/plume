@@ -1,5 +1,5 @@
 .vs
 bin
 obj
-sftp/target
+sftp/target/
 sftp/Cargo.lock
