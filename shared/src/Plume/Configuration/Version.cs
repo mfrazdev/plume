@@ -20,26 +20,13 @@ public class UpdateInfo
 
 public static class VersionManager
 {
-    // Variáveis carregadas via Assembly Metadata (injetadas no build)
-    public static string Version { get; }
-    public static string Commit { get; }
-    public static string BuildDate { get; }
-    public static string BuildTime { get; }
+    // Variáveis lidas diretamente da classe gerada pelo MSBuild no momento da compilação
+    public static string Version => BuildInfo.Version;
+    public static string Commit => BuildInfo.Commit;
+    public static string BuildDate => BuildInfo.BuildDate;
+    public static string BuildTime => BuildInfo.BuildTime;
 
     private const string GithubRepo = "mfrazlab/plume"; // Substitua se necessário
-
-    static VersionManager()
-    {
-        // Tenta buscar os valores injetados no .csproj durante o publish/build.
-        // Se não encontrar, usa os valores padrão de desenvolvimento.
-        var assembly = Assembly.GetExecutingAssembly();
-        var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>();
-
-        Version = metadata.FirstOrDefault(m => m.Key == "AppVersion")?.Value ?? "dev";
-        Commit = metadata.FirstOrDefault(m => m.Key == "AppCommit")?.Value ?? "local";
-        BuildDate = metadata.FirstOrDefault(m => m.Key == "AppBuildDate")?.Value ?? "unknown";
-        BuildTime = metadata.FirstOrDefault(m => m.Key == "AppBuildTime")?.Value ?? "0";
-    }
 
     public static string GetVersion() => Version;
     public static string GetCommit() => Commit;

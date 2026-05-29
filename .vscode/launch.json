@@ -12,6 +12,11 @@
                 "--distro",
                 "windows-amd64"
             ],
+            "env": {
+                "TAG_NAME": "dev",
+                "GITHUB_SHA": "local-build-rust",
+                "BUILD_TIME": "1748510000"
+            },
             "console": "integratedTerminal"
         },
         {
@@ -25,6 +30,11 @@
                 "--distro",
                 "windows-amd64"
             ],
+            "env": {
+                "TAG_NAME": "v1.0.0",
+                "GITHUB_SHA": "debug-csharp-build",
+                "BUILD_TIME": "1748510000"
+            },
             "console": "integratedTerminal",
             "postDebugTask": "run-app"
         }

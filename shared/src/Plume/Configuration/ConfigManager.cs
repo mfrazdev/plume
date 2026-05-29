@@ -212,12 +212,32 @@ public static class ConfigManager
         catch { return (false, 0.0); }
     }
 
-    public static bool UserIsAdmin(string userUUID)
+public static bool UserIsAdmin(string userUUID)
+{
+    if (!ValidateUUID(userUUID))
     {
-        if (!ValidateUUID(userUUID)) return false;
-        try { return RemoteAPI("/admin-permission", new() { { "userUuid", userUUID } }).TryGetValue("isAdmin", out var v) && v is bool b && b; }
-        catch { return false; }
+        Console.WriteLine($"UUID inválido recebido em UserIsAdmin: {userUUID}");
+        return false;
     }
+
+    try
+    {
+        var response = RemoteAPI("/admin-permission", new()
+        {
+            { "userUuid", userUUID }
+        });
+
+        var result = response.TryGetValue("isAdmin", out var v) &&
+                     v is bool b &&
+                     b;
+
+        return result;
+    }
+    catch (Exception ex)
+    {
+        return false;
+    }
+}
 
     public static bool HasPermission(string userUUID, string serverId)
     {

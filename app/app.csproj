@@ -34,13 +34,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <AssemblyMetadata Include="AppVersion" Value="$(FinalAppVersion)" Condition="'$(FinalAppVersion)' != ''" />
-        <AssemblyMetadata Include="AppCommit" Value="$(FinalAppCommit)" Condition="'$(FinalAppCommit)' != ''" />
-        <AssemblyMetadata Include="AppBuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))" />
-        <AssemblyMetadata Include="AppBuildTime" Value="$(FinalAppBuildTime)" Condition="'$(FinalAppBuildTime)' != ''" />
-    </ItemGroup>
-
-    <ItemGroup>
         <ProjectReference Include="..\http\http.csproj" />
         <ProjectReference Include="..\shared\shared.csproj" />
     </ItemGroup>
@@ -95,6 +88,30 @@
     <Target Name="LimparPublishAot" AfterTargets="ComputeResolvedFilesToPublishList">
         <ItemGroup>
             <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb' Or '%(Extension)' == '.dll'" />
+        </ItemGroup>
+    </Target>
+
+    <!-- GERAÇÃO DE VARIÁVEIS SEGURAS PARA NATIVE AOT -->
+    <Target Name="GenerateBuildInfo" BeforeTargets="BeforeCompile">
+        <PropertyGroup>
+            <SafeVersion Condition="'$(FinalAppVersion)' != ''">$(FinalAppVersion)</SafeVersion>
+            <SafeVersion Condition="'$(FinalAppVersion)' == ''">dev</SafeVersion>
+
+            <SafeCommit Condition="'$(FinalAppCommit)' != ''">$(FinalAppCommit)</SafeCommit>
+            <SafeCommit Condition="'$(FinalAppCommit)' == ''">local</SafeCommit>
+
+            <SafeBuildTime Condition="'$(FinalAppBuildTime)' != ''">$(FinalAppBuildTime)</SafeBuildTime>
+            <SafeBuildTime Condition="'$(FinalAppBuildTime)' == ''">0</SafeBuildTime>
+        </PropertyGroup>
+
+        <!-- Cria o arquivo direto na pasta obj/ com as variáveis -->
+        <WriteLinesToFile 
+            File="$(IntermediateOutputPath)BuildInfo.g.cs" 
+            Lines="namespace PlumeSFTP.System%3B public static class BuildInfo { public const string Version = &quot;$(SafeVersion)&quot;%3B public const string Commit = &quot;$(SafeCommit)&quot;%3B public const string BuildDate = &quot;$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))&quot;%3B public const string BuildTime = &quot;$(SafeBuildTime)&quot;%3B }" 
+            Overwrite="true" />
+        
+        <ItemGroup>
+            <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
         </ItemGroup>
     </Target>
 

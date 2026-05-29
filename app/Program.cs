@@ -36,6 +36,16 @@ incluídos em todas as cópias ou partes substanciais deste software.
 
             try
             {
+                using var shutdownCts = new CancellationTokenSource();
+
+                Console.CancelKeyPress += (_, e) =>
+                {
+                    e.Cancel = true;
+                    shutdownCts.Cancel();
+                };
+
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => shutdownCts.Cancel();
+
                 // Agora o LoggerFactory usa a NOSSA classe (PlumeLogger) em vez do padrão feio do C#
                 using var loggerFactory = LoggerFactory.Create(builder =>
                 {
@@ -65,7 +75,7 @@ incluídos em todas as cópias ou partes substanciais deste software.
 
                 // Inicializa e sobe o Kestrel (HttpServer)
                 var http = new HttpServer(httpLogger);
-                http.Start();
+                http.StartAsync(shutdownCts.Token).GetAwaiter().GetResult();
             }
             catch (Exception e)
             {

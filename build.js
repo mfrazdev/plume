@@ -16,11 +16,23 @@ if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
 }
 
+// ==========================================
+// LOGS DE DEBUG DAS VARIÁVEIS DE AMBIENTE
+// ==========================================
+console.log(`${YELLOW}>>> DUMP DO PROCESS.ENV:<<<${NC}`);
+console.log(process.env);
+console.log(`${YELLOW}-----------------------------------${NC}`);
+
 // Resgata as variáveis de versão do GitHub Actions (ou usa mock para dev)
 const appVersion = process.env.TAG_NAME || 'dev';
 const appCommit = process.env.GITHUB_SHA || 'local';
 const appBuildTime = process.env.BUILD_TIME || Math.floor(Date.now() / 1000).toString();
 const appBuildDate = new Date().toISOString();
+
+console.log(`${YELLOW}>>> VARIÁVEIS CAPTURADAS:<<<${NC}`);
+console.log({ appVersion, appCommit, appBuildTime, appBuildDate });
+console.log(`${YELLOW}-----------------------------------${NC}\n`);
+// ==========================================
 
 // Alvos do Rust (Target Triples)
 const targets = [

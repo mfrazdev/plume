@@ -1,25 +1,59 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-      <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <OutputType>Library</OutputType>
-      <EnableNETAnalyzers>false</EnableNETAnalyzers>
-      <AnalysisLevel>none</AnalysisLevel>
-      <WarningLevel>0</WarningLevel>
-    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
-  </PropertyGroup>
+    <PropertyGroup>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <OutputType>Library</OutputType>
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <AnalysisLevel>none</AnalysisLevel>
+        <WarningLevel>0</WarningLevel>
+        <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
-    <PackageReference Include="Microsoft.AspNetCore.Diagnostics" Version="2.3.10" />
-    <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
-    <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
-    <PackageReference Include="YamlDotNet" Version="18.0.0" />
-  </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+        <PackageReference Include="Microsoft.AspNetCore.Diagnostics" Version="2.3.10" />
+        <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+        <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
+        <PackageReference Include="YamlDotNet" Version="18.0.0" />
+    </ItemGroup>
+
+    <!-- Definição das variáveis para o BuildInfo -->
+    <PropertyGroup>
+        <FinalAppVersion Condition="'$(AppVersion)' != ''">$(AppVersion)</FinalAppVersion>
+        <FinalAppVersion Condition="'$(AppVersion)' == ''">dev</FinalAppVersion>
+
+        <FinalAppCommit Condition="'$(AppCommit)' != ''">$(FinalAppCommit)</FinalAppCommit>
+        <FinalAppCommit Condition="'$(AppCommit)' == ''">local</FinalAppCommit>
+
+        <FinalAppBuildTime Condition="'$(AppBuildTime)' != ''">$(AppBuildTime)</FinalAppBuildTime>
+        <FinalAppBuildTime Condition="'$(AppBuildTime)' == ''">0</FinalAppBuildTime>
+    </PropertyGroup>
+
+    <Target Name="GenerateBuildInfo" BeforeTargets="BeforeCompile">
+        <ItemGroup>
+            <BuildInfoLines Include="namespace PlumeSFTP.System%3B" />
+            <BuildInfoLines Include="public static class BuildInfo" />
+            <BuildInfoLines Include="{" />
+            <BuildInfoLines Include="    public const string Version = &quot;$(FinalAppVersion)&quot;%3B" />
+            <BuildInfoLines Include="    public const string Commit = &quot;$(FinalAppCommit)&quot;%3B" />
+            <BuildInfoLines Include="    public const string BuildDate = &quot;$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))&quot;%3B" />
+            <BuildInfoLines Include="    public const string BuildTime = &quot;$(FinalAppBuildTime)&quot;%3B" />
+            <BuildInfoLines Include="}" />
+        </ItemGroup>
+
+        <WriteLinesToFile
+                File="$(IntermediateOutputPath)BuildInfo.g.cs"
+                Lines="@(BuildInfoLines)"
+                Overwrite="true" />
+
+        <ItemGroup>
+            <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
+        </ItemGroup>
+    </Target>
 
 </Project>
