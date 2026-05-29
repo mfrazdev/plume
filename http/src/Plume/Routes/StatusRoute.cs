@@ -38,11 +38,12 @@ namespace Plume.Http.Routes;
 
         public static void Register(RouteGroupBuilder group)
         {
-            group.MapPost("/status", () =>
+            group.MapPost("/status", async () =>
             {
-                var currentVersion = "1.0.0"; 
-                var updateAvailable = false;  
-                var latestVersion = "1.0.0";  
+                var versionInfo = await PlumeSFTP.System.VersionManager.CheckForUpdatesAsync();
+                var currentVersion = versionInfo.CurrentVersion; 
+                var updateAvailable = versionInfo.UpdateAvailable;  
+                var latestVersion = versionInfo.LatestVersion;  
 
                 long uptimeMillis = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - Manager.WhenStarted;
 

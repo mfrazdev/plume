@@ -16,6 +16,12 @@ if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
 }
 
+// Resgata as variáveis de versão do GitHub Actions (ou usa mock para dev)
+const appVersion = process.env.TAG_NAME || 'dev';
+const appCommit = process.env.GITHUB_SHA || 'local';
+const appBuildTime = process.env.BUILD_TIME || Math.floor(Date.now() / 1000).toString();
+const appBuildDate = new Date().toISOString();
+
 // Alvos do Rust (Target Triples)
 const targets = [
     { id: 'windows-amd64', rustTarget: 'x86_64-pc-windows-msvc', ext: 'lib', prefix: '', dotnetRid: 'win-x64' },
@@ -42,7 +48,8 @@ for (let i = 0; i < args.length; i++) {
 let targetsToBuild = distroFilter ? targets.filter(t => t.id === distroFilter) : targets;
 
 console.log(`${CYAN}===================================================${NC}`);
-console.log(`${CYAN}   Iniciando compilação do ecossistema PlumeSFTP (Rust)${NC}`);
+console.log(`${CYAN}   Iniciando compilação do ecossistema PlumeSFTP${NC}`);
+console.log(`${CYAN}   Versão: ${appVersion} | Commit: ${appCommit.substring(0,7)}${NC}`);
 console.log(`${CYAN}===================================================${NC}\n`);
 
 // Guarda o último código de erro encontrado (0 significa sucesso)
@@ -74,10 +81,12 @@ for (const t of targetsToBuild) {
         if (buildCsharp) {
             console.log(`   [*] Compilando C# NativeAOT para ${t.dotnetRid}...`);
             
+            // Injeção de variáveis via propriedades do MSBuild para preencher o AssemblyMetadata
+            let extraArgs = ` -p:AppVersion="${appVersion}" -p:AppCommit="${appCommit}" -p:AppBuildDate="${appBuildDate}" -p:AppBuildTime="${appBuildTime}"`;
+            
             // Se for compilação cruzada para Linux ARM64, força o uso do objcopy correto
-            let extraArgs = '';
             if (t.id === 'linux-arm64') {
-                extraArgs = ' -p:ObjCopyName=aarch64-linux-gnu-objcopy';
+                extraArgs += ' -p:ObjCopyName=aarch64-linux-gnu-objcopy';
             }
 
             const dotnetCmd = `dotnet publish "${csprojPath}" -c Release -r ${t.dotnetRid}${extraArgs}`;

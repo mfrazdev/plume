@@ -11,13 +11,14 @@ permissions:
 
 jobs:
   # ==========================================
-  # 1. JOB DE VERSIONAMENTO (Intacto)
+  # 1. JOB DE VERSIONAMENTO
   # ==========================================
   versioning:
     runs-on: ubuntu-latest
     outputs:
       TAG_NAME: ${{ steps.version.outputs.TAG_NAME }}
       IS_LATEST: ${{ steps.version.outputs.IS_LATEST }}
+      BUILD_TIME: ${{ steps.version.outputs.BUILD_TIME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
           PATCH="${VERSION_PARTS[2]}"
           
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          BUILD_TIME=$(date +%s)
           
           if [[ "$COMMIT_MSG" =~ release\ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
             FINAL_TAG="${BASH_REMATCH[1]}"
@@ -62,6 +64,7 @@ jobs:
           
           echo "TAG_NAME=$FINAL_TAG" >> $GITHUB_OUTPUT
           echo "IS_LATEST=$IS_LATEST" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
 
       - name: Force Update Canary Tag
         if: contains(steps.version.outputs.TAG_NAME, 'canary')
@@ -72,7 +75,7 @@ jobs:
           git push -f origin ${{ steps.version.outputs.TAG_NAME }}
 
   # ==========================================
-  # 2. JOB DE COMPILAÇÃO (Matriz Multi-OS)
+  # 2. JOB DE COMPILAÇÃO (Matriz Multi-OS sem ZIP)
   # ==========================================
   build:
     needs: versioning
@@ -83,15 +86,19 @@ jobs:
           - os: ubuntu-latest
             distro: linux-amd64
             rid: linux-x64
+            final_name: feather-linux-amd64
           - os: ubuntu-latest
             distro: linux-arm64
             rid: linux-arm64
+            final_name: feather-linux-arm64
           - os: ubuntu-latest
             distro: alpine-amd64
             rid: linux-musl-x64
+            final_name: feather-linux-musl-amd64
           - os: macos-14
             distro: mac-arm64
             rid: osx-arm64
+            final_name: feather-darwin-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -120,24 +127,20 @@ jobs:
           if [[ "${{ matrix.distro }}" == "linux-arm64" ]]; then sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu; fi
           if [[ "${{ matrix.distro }}" == "alpine-amd64" ]]; then sudo apt-get install -y musl-tools; fi
 
-      # ------------------------------------------
-      # NOVO: Cache da pasta bin/sftp
-      # ------------------------------------------
       - name: Cache SFTP Binaries
         id: cache-sftp
         uses: actions/cache@v4
         with:
           path: ./bin/sftp
-          # Se qualquer arquivo na pasta sftp/ mudar, o hash muda e ele invalida o cache
           key: sftp-${{ matrix.rid }}-${{ hashFiles('sftp/**') }}
           restore-keys: |
             sftp-${{ matrix.rid }}-
 
-      # ------------------------------------------
-      # ATUALIZADO: Lógica condicional no build.js
-      # ------------------------------------------
-      - name: Build Rust and C# (using build.js)
+      - name: Build Rust and C#
         shell: bash
+        env:
+          TAG_NAME: ${{ needs.versioning.outputs.TAG_NAME }}
+          BUILD_TIME: ${{ needs.versioning.outputs.BUILD_TIME }}
         run: |
           if [ "${{ steps.cache-sftp.outputs.cache-hit }}" == "true" ]; then
             echo "Cache dos binários do SFTP encontrado! Pulando o build completo..."
@@ -147,26 +150,31 @@ jobs:
             node build.js --distro=${{ matrix.distro }} --all
           fi
 
-      - name: Pack Binary
+      - name: Extract Raw Executable
         shell: bash
         run: |
           PUBLISH_DIR="./bin/app/Release/publish"
           
+          # Entra no diretório de publicação e remove os arquivos indesejados (.pdb de debug)
           cd $PUBLISH_DIR
+          rm -f *.pdb *.dbg *.dsym
           
-          # Checa se o comando zip existe (Linux/macOS)
-          if command -v zip >/dev/null 2>&1; then
-            zip -r ../../../../plumesftp-${{ matrix.rid }}.zip * -x "*.pdb"
-          else
-            # Fallback para Windows usando o 7z nativo do runner
-            7z a -tzip ../../../../plumesftp-${{ matrix.rid }}.zip * -xr!*\.pdb
+          # Pega o único arquivo que sobrar, que é nosso executável NativeAOT cru
+          BIN_FILE=$(find . -maxdepth 1 -type f | head -n 1)
+          
+          if [ -z "$BIN_FILE" ]; then
+            echo "Erro: Nenhum executável final encontrado no diretório $PUBLISH_DIR!"
+            exit 1
           fi
+          
+          # Move e renomeia para a raiz para o Upload
+          mv "$BIN_FILE" "../../../../${{ matrix.final_name }}"
 
-      - name: Upload Artifact
+      - name: Upload Raw Artifact
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.rid }}
-          path: plumesftp-${{ matrix.rid }}.zip
+          path: ${{ matrix.final_name }}
           retention-days: 1
 
   # ==========================================
@@ -187,7 +195,7 @@ jobs:
         with:
           tag_name: ${{ needs.versioning.outputs.TAG_NAME }}
           name: v${{ needs.versioning.outputs.TAG_NAME }}
-          files: artifacts/*.zip
+          files: artifacts/*
           generate_release_notes: true
           make_latest: ${{ needs.versioning.outputs.IS_LATEST }}
           prerelease: ${{ contains(needs.versioning.outputs.TAG_NAME, 'canary') }}
