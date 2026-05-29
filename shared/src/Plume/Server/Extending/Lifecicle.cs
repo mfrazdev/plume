@@ -599,8 +599,7 @@ public static class ServerLifecycle {
               UnixFileMode.GroupRead | UnixFileMode.GroupExecute | 
               UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
                   
-            // Força o ajuste do dono (chown) para este script especificamente
-            await server.FixPermsAsync(scriptPath);
+    
           } 
           catch {
             // Ignorado de forma segura caso ambiente de teste não seja Unix
