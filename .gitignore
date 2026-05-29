@@ -1,5 +1,5 @@
 .vs
 bin
 obj
-plume_sftp_core/target
-plume_sftp_core/Cargo.lock
+sftp/target
+sftp/Cargo.lock
