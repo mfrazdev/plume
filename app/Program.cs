@@ -47,7 +47,7 @@ incluídos em todas as cópias ou partes substanciais deste software.
                     _ = builder.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
                 });
 
-                var defaultLogger = loggerFactory.CreateLogger("PlumeCore");
+                var defaultLogger = loggerFactory.CreateLogger("Program");
                 var httpLogger = loggerFactory.CreateLogger<HttpServer>();
 
                 // Carrega a configuração (ConfigManager foi ajustado para receber ILogger)

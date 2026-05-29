@@ -86,19 +86,19 @@ jobs:
           - os: ubuntu-latest
             distro: linux-amd64
             rid: linux-x64
-            final_name: feather-linux-amd64
+            final_name: plume-linux-amd64
           - os: ubuntu-latest
             distro: linux-arm64
             rid: linux-arm64
-            final_name: feather-linux-arm64
+            final_name: plume-linux-arm64
           - os: ubuntu-latest
             distro: alpine-amd64
             rid: linux-musl-x64
-            final_name: feather-linux-musl-amd64
+            final_name: plume-linux-musl-amd64
           - os: macos-14
             distro: mac-arm64
             rid: osx-arm64
-            final_name: feather-darwin-arm64
+            final_name: plume-darwin-arm64
 
     runs-on: ${{ matrix.os }}
 
