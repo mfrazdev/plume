@@ -26,7 +26,7 @@ public static class VersionManager
     public static string BuildDate { get; }
     public static string BuildTime { get; }
 
-    private const string GithubRepo = "mfrazlab/daemon"; // Substitua se necessário
+    private const string GithubRepo = "mfrazlab/plume"; // Substitua se necessário
 
     static VersionManager()
     {
