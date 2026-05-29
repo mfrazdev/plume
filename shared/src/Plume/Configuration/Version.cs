@@ -98,7 +98,8 @@ public static class VersionManager
             }
         }
 
-        throw new Exception("no suitable release found in feed");
+        // Retorna vazio ao invés de quebrar a aplicação caso não ache versões compatíveis
+        return (string.Empty, DateTimeOffset.MinValue);
     }
 
     public static async Task<UpdateInfo> CheckForUpdatesAsync()
@@ -151,6 +152,10 @@ public static class VersionManager
     public static async Task UpdateAsync()
     {
         var (latestTag, remoteUpdated) = await FetchLatestGitHubReleaseAsync();
+
+        // Trava de segurança para o caso de não haver versão no feed
+        if (string.IsNullOrEmpty(latestTag))
+            throw new Exception("no suitable release found in feed");
 
         string latest = latestTag.TrimStart('v');
         string current = Version.TrimStart('v');

@@ -22,6 +22,14 @@
         <NoWarn>$(NoWarn);CA1805;CA1816;CA2101;CA1848;CA1873;CA1866;CA1860;CA1310;CA1001;CA1305;CA2201;CA1304;CA1311;CA1835;CA1869;CA1847;CA1861;CA1854;CA1822;SYSLIB1054;CA1852;CA2254;SYSLIB1045;CA1826</NoWarn>
     </PropertyGroup>
 
+    <!-- PONTE DAS VARIÁVEIS DE BUILD (INJEÇÃO NO NATIVE AOT) -->
+    <ItemGroup>
+        <AssemblyMetadata Include="AppVersion" Value="$(AppVersion)" Condition="'$(AppVersion)' != ''" />
+        <AssemblyMetadata Include="AppCommit" Value="$(AppCommit)" Condition="'$(AppCommit)' != ''" />
+        <AssemblyMetadata Include="AppBuildDate" Value="$(AppBuildDate)" Condition="'$(AppBuildDate)' != ''" />
+        <AssemblyMetadata Include="AppBuildTime" Value="$(AppBuildTime)" Condition="'$(AppBuildTime)' != ''" />
+    </ItemGroup>
+
     <ItemGroup>
         <ProjectReference Include="..\http\http.csproj" />
         <ProjectReference Include="..\shared\shared.csproj" />
@@ -74,8 +82,7 @@
         <TrimmerRootAssembly Include="shared" />
     </ItemGroup>
 
-
-<Target Name="LimparPublishAot" AfterTargets="ComputeResolvedFilesToPublishList">
+    <Target Name="LimparPublishAot" AfterTargets="ComputeResolvedFilesToPublishList">
         <ItemGroup>
             <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb' Or '%(Extension)' == '.dll'" />
         </ItemGroup>
