@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+      <EnableNETAnalyzers>false</EnableNETAnalyzers>
+      <AnalysisLevel>none</AnalysisLevel>
+      <WarningLevel>0</WarningLevel>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+    <PackageReference Include="Microsoft.AspNetCore.Diagnostics" Version="2.3.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+    <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
+    <PackageReference Include="YamlDotNet" Version="18.0.0" />
+  </ItemGroup>
+
+</Project>

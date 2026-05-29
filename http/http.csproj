@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\shared\shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+    <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
+    <PackageReference Include="YamlDotNet" Version="18.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+
+      <EnableNETAnalyzers>false</EnableNETAnalyzers>
+      <AnalysisLevel>none</AnalysisLevel>
+      <WarningLevel>0</WarningLevel>
+  </PropertyGroup>
+
+</Project>

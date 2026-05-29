@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <OutputType>Exe</OutputType>
+        <InvariantGlobalization>true</InvariantGlobalization>
+
+        <PublishAot>true</PublishAot>
+        <StripSymbols>true</StripSymbols>
+
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <AnalysisLevel>none</AnalysisLevel>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\http\http.csproj" />
+        <ProjectReference Include="..\shared\shared.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+        <PackageReference Include="Microsoft.AspNetCore.Diagnostics" Version="2.3.10" />
+        <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+        <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
+        <PackageReference Include="YamlDotNet" Version="18.0.0" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+        <NativeLibrary Include="..\binaries\plumesftp-windows-amd64.a" />
+        <NativeLibrary Include="ws2_32.lib" /> <NativeLibrary Include="bcrypt.lib" /> </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+        <NativeLibrary Include="..\binaries\plumesftp-linux-amd64.a" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
+        <NativeLibrary Include="..\binaries\plumesftp-linux-arm64.a" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">
+        <NativeLibrary Include="..\binaries\plumesftp-alpine-amd64.a" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+        <NativeLibrary Include="..\binaries\plumesftp-mac-arm64.a" />
+        <NativeLibrary Include="-framework CoreFoundation" />
+        <NativeLibrary Include="-framework Security" />
+    </ItemGroup>
+
+</Project>
