@@ -10,7 +10,6 @@
 
     <ItemGroup>
         <PackageReference Include="Docker.DotNet" Version="3.125.15" />
-        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
         <PackageReference Include="Rebex.FileServer" Version="7.0.9561" />
         <PackageReference Include="YamlDotNet" Version="18.0.0" />
     </ItemGroup>
