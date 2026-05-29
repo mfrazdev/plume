@@ -160,7 +160,7 @@ jobs:
           rm -f *.pdb *.dbg *.dsym
           
           # Pega o único arquivo que sobrar, que é nosso executável NativeAOT cru
-          BIN_FILE=$(find . -maxdepth 1 -type f | head -n 1)
+          BIN_FILE="plume-${{ matrix.rid }}"
           
           if [ -z "$BIN_FILE" ]; then
             echo "Erro: Nenhum executável final encontrado no diretório $PUBLISH_DIR!"
