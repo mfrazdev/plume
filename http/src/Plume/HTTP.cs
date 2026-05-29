@@ -15,6 +15,7 @@ using Plume.Http.Routes;
 using Plume.Http.Routes.Server;
 using Plume.Http.Routes.Websocket;
 using Plume.Logging;
+using PlumeSFTP.System;
 
 namespace Plume.Http;
 
@@ -42,20 +43,21 @@ namespace Plume.Http;
     {
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            logger.LogInformation("Iniciando o servidor Lunar Plume na porta {AppPort}...", ConfigManager.GlobalConfig.App.Port);
+            logger.LogInformation("Iniciando o servidor Lunar Plume na porta {AppPort}...",
+                ConfigManager.GlobalConfig.App.Port);
 
             var builder = WebApplication.CreateBuilder();
-            
+
             builder.Services.ConfigureHttpJsonOptions(options =>
             {
                 options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
             });
-            
+
             builder.Logging.ClearProviders();
             builder.Logging.AddPlumeLogger();
             builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
-            
+
             builder.WebHost.ConfigureKestrel(options =>
             {
                 if (ConfigManager.GlobalConfig.Ssl.Enabled)
@@ -67,10 +69,8 @@ namespace Plume.Http;
                             keyPemFilePath: ConfigManager.GlobalConfig.Ssl.KeyPath
                         );
 
-                        options.ListenAnyIP(ConfigManager.GlobalConfig.App.Port, listenOptions =>
-                        {
-                            listenOptions.UseHttps(cert);
-                        });
+                        options.ListenAnyIP(ConfigManager.GlobalConfig.App.Port,
+                            listenOptions => { listenOptions.UseHttps(cert); });
                     }
                     catch (Exception e)
                     {
@@ -102,13 +102,13 @@ namespace Plume.Http;
                 {
                     context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                     context.HttpContext.Response.ContentType = "application/json";
-                    
+
                     var errorJson = JsonConvert.SerializeObject(new Responses.ErrorResponse(
                         Status: 429,
                         Error: "Too Many Requests",
                         Message: "Rate limit exceeded"
                     ), new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() });
-                    
+
                     await context.HttpContext.Response.WriteAsync(errorJson, token);
                 };
             });
@@ -130,8 +130,8 @@ namespace Plume.Http;
                     }
 
                     policy.WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                          .WithHeaders("Authorization", "Content-Type")
-                          .AllowCredentials();
+                        .WithHeaders("Authorization", "Content-Type")
+                        .AllowCredentials();
                 });
             });
 
@@ -144,6 +144,29 @@ namespace Plume.Http;
             ConfigureSecurity(app);
             ConfigureStatusPages(app);
             RouteRegistry.RegisterAll(app);
+
+            app.MapPost("/update", async context =>
+            {
+                try
+                {
+                    await VersionManager.UpdateAsync();
+
+                    Reply.Json(new
+                    {
+                        status = "success",
+                    });
+                }
+                catch (Exception e)
+                {
+                    Reply.Json(new
+                    {
+                        status = "error",
+                        error = e.Message
+                    });
+                    throw e;
+                    
+                }
+            });
 
             await app.RunAsync();
         }
