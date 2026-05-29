@@ -145,7 +145,7 @@ namespace Plume.Http;
             ConfigureStatusPages(app);
             RouteRegistry.RegisterAll(app);
 
-            app.MapPost("/update", async context =>
+            app.MapPost("/api/v1/update", async context =>
             {
                 try
                 {
