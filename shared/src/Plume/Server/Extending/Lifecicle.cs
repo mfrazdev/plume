@@ -591,8 +591,24 @@ public static class ServerLifecycle {
         
           // [OTIMIZAÇÃO] Escrita assíncrona novamente
           await File.WriteAllTextAsync(scriptPath, script, new UTF8Encoding(false));
+          
+          // [CORREÇÃO DE PERMISSÃO] Garante a permissão de execução diretamente do lado do Host
+          try {
+            File.SetUnixFileMode(scriptPath, 
+              UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | 
+              UnixFileMode.GroupRead | UnixFileMode.GroupExecute | 
+              UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+                  
+            // Força o ajuste do dono (chown) para este script especificamente
+            await server.FixPermsAsync(scriptPath);
+          } 
+          catch {
+            // Ignorado de forma segura caso ambiente de teste não seja Unix
+          }
+
           startupCmd = "chmod +x .plume_startup.sh 2>/dev/null; ./.plume_startup.sh";
         }
+
 
         string user = allowRoot ? "0:0" : "65534:65534";
 
