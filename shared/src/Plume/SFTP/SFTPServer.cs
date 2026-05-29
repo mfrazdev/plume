@@ -48,13 +48,13 @@ public static partial class InternalSftpServer
                         // O motor C entra em loop infinito aqui
                         StartPlumeSFTP(port, pKeyPath, (void*)pAuth, (void*)pEvent);
                         
-                        logger.LogWarning("[SFTP] O servidor nativo foi encerrado inesperadamente.");
+                        logger.LogWarning("O servidor nativo foi encerrado inesperadamente.");
                     }
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "[SFTP] Falha catastrófica ao tentar executar código C embutido.");
+                logger.LogError(ex, "Falha catastrófica ao tentar executar código C embutido.");
             }
         });
 
@@ -83,10 +83,10 @@ public static partial class InternalSftpServer
             case 10: 
                 break; 
             case 11: 
-                _logger.LogInformation("Motor de rede iniciado na porta: {Porta}", rawData); 
+                _logger.LogInformation("Servidor SFTP ouvindo em {Port}", ConfigManager.GlobalConfig.Sftp.Port); 
                 break;
             case 12: 
-                _logger.LogInformation("Cliente conectado. IP: {IP}", rawData); 
+                _logger.LogInformation("Cliente SFTP conectado. IP: {IP}", rawData); 
                 break;
 
             // --- AUTENTICAÇÃO E SESSÃO ---

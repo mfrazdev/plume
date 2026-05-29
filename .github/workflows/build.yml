@@ -80,9 +80,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            distro: windows-amd64
-            rid: win-x64
           - os: ubuntu-latest
             distro: linux-amd64
             rid: linux-x64
@@ -150,14 +147,20 @@ jobs:
             node build.js --distro=${{ matrix.distro }} --all
           fi
 
-      # Mantido o Pack Binary que vai pegar lá da pasta final certinha do publish
       - name: Pack Binary
         shell: bash
         run: |
           PUBLISH_DIR="./bin/app/Release/publish"
           
           cd $PUBLISH_DIR
-          zip -r ../../../../plumesftp-${{ matrix.rid }}.zip * -x "*.pdb"
+          
+          # Checa se o comando zip existe (Linux/macOS)
+          if command -v zip >/dev/null 2>&1; then
+            zip -r ../../../../plumesftp-${{ matrix.rid }}.zip * -x "*.pdb"
+          else
+            # Fallback para Windows usando o 7z nativo do runner
+            7z a -tzip ../../../../plumesftp-${{ matrix.rid }}.zip * -xr!*\.pdb
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

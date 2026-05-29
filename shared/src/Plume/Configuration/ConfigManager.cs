@@ -131,6 +131,8 @@ public static class ConfigManager
                 handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
             }
 
+            logger.LogInformation("Configurações carregadas com sucesso de {ConfigPath}", configFilePath);
+
             HttpClient = new HttpClient(handler);
             HttpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }

@@ -4,9 +4,9 @@
         {
             "label": "run-app",
             "type": "shell",
-            "command": ".\\app.exe",
+            "command": ".\\plume-win-x64.exe",
             "options": {
-                "cwd": "E:\\panel\\plume-net\\bin\\app\\Release\\win-x64\\publish"
+                "cwd": "E:\\panel\\plume-net\\bin\\app\\Release\\publish"
             },
             "problemMatcher": []
         }
