@@ -4,11 +4,19 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization; // Adicionado para o AOT
 using Microsoft.Extensions.Logging;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 #nullable enable
+
+// --- ADICIONADO: Contexto JSON AOT para os payloads de Request ---
+[JsonSerializable(typeof(Dictionary<string, object?>))]
+public partial class RemoteApiJsonContext : JsonSerializerContext
+{
+}
+// -----------------------------------------------------------------
 
 public class AppSection
 {
@@ -134,27 +142,53 @@ public static class ConfigManager
 
     public static Dictionary<string, object?> RemoteAPI(string endpoint, Dictionary<string, object?> payload)
     {
-        string remoteURL;
-        string token;
-
-        _lock.EnterReadLock();
         try
         {
-            remoteURL = $"{GlobalConfig.Remote.Url}/api/nodes/helper{endpoint}";
-            token = GlobalConfig.Remote.Token;
+            string remoteURL;
+            string token;
+
+            _lock.EnterReadLock();
+            try
+            {
+                remoteURL = $"{GlobalConfig.Remote.Url}/api/nodes/helper{endpoint}";
+                token = GlobalConfig.Remote.Token;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
+            }
+
+            var finalPayload = new Dictionary<string, object?>(payload) { ["token"] = token };
+
+            // Injeta o contexto para o AOT conseguir serializar o Dictionary sem usar reflexão
+            var jsonOptions = new JsonSerializerOptions 
+            { 
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                TypeInfoResolver = RemoteApiJsonContext.Default
+            };
+
+            var response = HttpClient.PostAsJsonAsync(remoteURL, finalPayload, jsonOptions).GetAwaiter().GetResult();
+            
+            // Se o servidor retornar erro (404, 500, etc), retorna vazio para evitar quebras
+            if (!response.IsSuccessStatusCode)
+            {
+                return new Dictionary<string, object?>();
+            }
+
+            string content = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return new Dictionary<string, object?>();
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            return doc.RootElement.ToAnyValue() as Dictionary<string, object?> ?? new();
         }
-        finally
+        catch
         {
-            _lock.ExitReadLock();
+            // Se der erro de rede (offline, timeout, conexão recusada), engole o erro e retorna dicionário vazio
+            return new Dictionary<string, object?>();
         }
-
-        var finalPayload = new Dictionary<string, object?>(payload) { ["token"] = token };
-
-        var response = HttpClient.PostAsJsonAsync(remoteURL, finalPayload, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }).GetAwaiter().GetResult();
-        response.EnsureSuccessStatusCode();
-
-        using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
-        return doc.RootElement.ToAnyValue() as Dictionary<string, object?> ?? new();
     }
 
     public static bool ValidateServerID(string? serverId) => 

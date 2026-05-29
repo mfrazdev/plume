@@ -6,8 +6,8 @@ using Plume.Server;
 using Plume.Logging;
 using Plume.SFTP;
 
-namespace Plume;
-
+namespace app
+{
     public class Program
     {
         public static void Main(string[] args)
@@ -19,18 +19,18 @@ namespace Plume;
             const string CYAN = "\x1b[36m";
             const string WHITE = "\x1b[37m";
 
-            string art = $@"{CYAN}
+            var art = $@"{CYAN}
    ___  __   __  ____  _______
   / _ \/ /  / / / /  |/  / __/
  / ___/ /__/ /_/ / /|_/ / _/  
 /_/  /____/\____/_/  /_/___/  
-{WHITE}
+    {WHITE}
 Copyright © 2026 - MurilloFz
 
 Este software é disponibilizado sob os termos da Licença MIT.
 A notificação de direitos autorais acima, bem como este aviso de permissão, devem ser
 incluídos em todas as cópias ou partes substanciais deste software.
-{RESET}";
+    {RESET}";
 
             Console.WriteLine(art);
 
@@ -39,14 +39,14 @@ incluídos em todas as cópias ou partes substanciais deste software.
                 // Agora o LoggerFactory usa a NOSSA classe (PlumeLogger) em vez do padrão feio do C#
                 using var loggerFactory = LoggerFactory.Create(builder =>
                 {
-                    builder.AddPlumeLogger();
-                    builder.SetMinimumLevel(LogLevel.Information);
-                    
+                    _ = builder.AddPlumeLogger();
+                    _ = builder.SetMinimumLevel(LogLevel.Information);
+
                     // Oculta o spam de logs de requisição HTTP (GET, POST) nativos do ASP.NET Core
-                    builder.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
-                    builder.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
+                    _ = builder.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+                    _ = builder.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
                 });
-                
+
                 var defaultLogger = loggerFactory.CreateLogger("PlumeCore");
                 var httpLogger = loggerFactory.CreateLogger<HttpServer>();
 
@@ -54,7 +54,7 @@ incluídos em todas as cópias ou partes substanciais deste software.
                 ConfigManager.LoadConfig(defaultLogger);
 
                 // Inicializa o banco de dados via JSON
-                string dbPath = Path.Combine(ConfigManager.GlobalConfig.App.Path, "db.json");
+                var dbPath = Path.Combine(ConfigManager.GlobalConfig.App.Path, "db.json");
                 DatabaseManager.InitDB(dbPath);
 
                 // Chama a inicialização do Manager e aguarda a execução síncrona
@@ -74,3 +74,4 @@ incluídos em todas as cópias ou partes substanciais deste software.
             }
         }
     }
+}

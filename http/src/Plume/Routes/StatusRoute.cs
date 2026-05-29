@@ -5,13 +5,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Plume.Server;
 
+namespace Plume.Http.Routes;
 
-namespace Plume.Http.Routes
-{
     public static class StatusRoute
     {
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used by JSON serialization")]
-        private record StatusResponse(
+        // 1. O RECORD AGORA É PUBLIC (Obrigatório para o AOT conseguir serializar)
+        public record StatusResponse(
             string Status,
             string Ram,
             string Os,
@@ -33,7 +32,6 @@ namespace Plume.Http.Routes
 
         private static double GetCpuUsage()
         {
-            // Calcula o uso de CPU do processo atual
             using var proc = Process.GetCurrentProcess();
             return (proc.TotalProcessorTime.TotalMilliseconds / 1000.0) * 100.0;
         }
@@ -48,7 +46,6 @@ namespace Plume.Http.Routes
 
                 long uptimeMillis = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - Manager.WhenStarted;
 
-                // Uso de memória RAM do processo atual (WorkingSet64 retorna bytes)
                 long usedRamBytes = Process.GetCurrentProcess().WorkingSet64;
                 long usedRamMb = usedRamBytes / (1024 * 1024);
 
@@ -63,8 +60,8 @@ namespace Plume.Http.Routes
                     FormatTime(uptimeMillis)
                 );
 
-                return Results.Ok(responseData);
+                // 2. MUDAMOS PARA TypedResults.Ok (Diz pro AOT exatamente qual é o tipo da resposta)
+                return TypedResults.Ok(responseData);
             });
         }
     }
-}

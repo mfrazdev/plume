@@ -27,11 +27,6 @@ namespace Plume.Http.Routes.Websocket
             WsUsageData Usage
         );
 
-        private static readonly JsonSerializerOptions JsonOpts = new()
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-
         public static void Register(RouteGroupBuilder group)
         {
             group.Map("/servers/usages", async context =>
@@ -101,7 +96,7 @@ namespace Plume.Http.Routes.Websocket
                         )
                     );
 
-                    string json = JsonSerializer.Serialize(payload, JsonOpts);
+                    string json = JsonSerializer.Serialize(payload, AppJsonContext.Default.WsUsagePayload);
                     var bytes = System.Text.Encoding.UTF8.GetBytes(json);
                     await ws.SendAsync(new ArraySegment<byte>(bytes), System.Net.WebSockets.WebSocketMessageType.Text, true, cts.Token);
                 }

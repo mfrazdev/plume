@@ -6,12 +6,12 @@
         <Nullable>enable</Nullable>
         <OutputType>Exe</OutputType>
         <InvariantGlobalization>true</InvariantGlobalization>
-
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PublishAot>true</PublishAot>
         <StripSymbols>true</StripSymbols>
 
-        <EnableNETAnalyzers>false</EnableNETAnalyzers>
         <AnalysisLevel>none</AnalysisLevel>
+        <NoWarn>$(NoWarn);CA1805;CA1816;CA2101;CA1848;CA1873;CA1866;CA1860;CA1310;CA1001;CA1305;CA2201;CA1304;CA1311;CA1835;CA1869;CA1847;CA1861;CA1854;CA1822;SYSLIB1054;CA1852;CA2254;SYSLIB1045;CA1826</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
@@ -29,26 +29,41 @@
         <PackageReference Include="YamlDotNet" Version="18.0.0" />
     </ItemGroup>
 
+    <!-- BLOCO WINDOWS (Já estava correto: .lib) -->
     <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
-        <NativeLibrary Include="..\binaries\plumesftp-windows-amd64.a" />
-        <NativeLibrary Include="ws2_32.lib" /> <NativeLibrary Include="bcrypt.lib" /> </ItemGroup>
+        <NativeLibrary Include="..\bin\sftp\plumesftp-windows-amd64.lib" />
+        <NativeLibrary Include="ws2_32.lib" />
+        <NativeLibrary Include="bcrypt.lib" />
+        <NativeLibrary Include="winmm.lib" />
+        <NativeLibrary Include="Userenv.lib" />
+        <NativeLibrary Include="Shell32.lib" />
+        <NativeLibrary Include="Ole32.lib" />
+    </ItemGroup>
 
+    <!-- BLOCOS LINUX E MAC CORRIGIDOS: Trocado de .o para .a -->
     <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
-        <NativeLibrary Include="..\binaries\plumesftp-linux-amd64.a" />
+        <NativeLibrary Include="..\bin\sftp\plumesftp-linux-amd64.a" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
-        <NativeLibrary Include="..\binaries\plumesftp-linux-arm64.a" />
+        <NativeLibrary Include="..\bin\sftp\plumesftp-linux-arm64.a" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">
-        <NativeLibrary Include="..\binaries\plumesftp-alpine-amd64.a" />
+        <NativeLibrary Include="..\bin\sftp\plumesftp-alpine-amd64.a" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
-        <NativeLibrary Include="..\binaries\plumesftp-mac-arm64.a" />
+        <NativeLibrary Include="..\bin\sftp\plumesftp-mac-arm64.a" />
         <NativeLibrary Include="-framework CoreFoundation" />
         <NativeLibrary Include="-framework Security" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <TrimmerRootAssembly Include="Docker.DotNet" />
+        <TrimmerRootAssembly Include="Newtonsoft.Json" />
+        <TrimmerRootAssembly Include="http" />
+        <TrimmerRootAssembly Include="shared" />
     </ItemGroup>
 
 </Project>

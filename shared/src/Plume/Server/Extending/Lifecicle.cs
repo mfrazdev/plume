@@ -728,12 +728,4 @@ public static class ServerLifecycle {
       return !pb.ContainsKey(expected);
     }
   }
-
-  // ---- pullImage ----
-
-  // ---- install ----
-
-  // ---- start ----
-
-  // Helpers específicos do Lifecycle
 }

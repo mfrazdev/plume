@@ -1,7 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -28,13 +27,6 @@ namespace Plume.Http.Routes.Websocket
         public record WsErrorResponse(string Message, string Category = "error");
 
         public record IncomingCommand(string? Type = null, string? Command = null);
-
-        // Opções de serialização (camelCase nativo)
-        private static readonly JsonSerializerOptions JsonOpts = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
 
         public static void Register(RouteGroupBuilder group)
         {
@@ -63,10 +55,21 @@ namespace Plume.Http.Routes.Websocket
                 }
 
                 // Função utilitária para enviar JSON
+                string SerializeWsPayload(object payload)
+                {
+                    return payload switch
+                    {
+                        WsLogMessage msg => JsonSerializer.Serialize(msg, AppJsonContext.Default.WsLogMessage),
+                        WsClearMessage msg => JsonSerializer.Serialize(msg, AppJsonContext.Default.WsClearMessage),
+                        WsErrorResponse msg => JsonSerializer.Serialize(msg, AppJsonContext.Default.WsErrorResponse),
+                        _ => throw new InvalidOperationException("Unsupported websocket payload type")
+                    };
+                }
+
                 async Task SendSerialized<T>(T payload)
                 {
                     if (ws.State != WebSocketState.Open) return;
-                    var json = JsonSerializer.Serialize(payload, JsonOpts);
+                    var json = SerializeWsPayload(payload!);
                     var bytes = Encoding.UTF8.GetBytes(json);
                     await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
                 }
@@ -233,10 +236,9 @@ namespace Plume.Http.Routes.Websocket
                             string frameText = Encoding.UTF8.GetString(buffer, 0, result.Count);
                             try
                             {
-                                var payload = JsonSerializer.Deserialize<IncomingCommand>(frameText, JsonOpts);
+                                var payload = JsonSerializer.Deserialize(frameText, AppJsonContext.Default.IncomingCommand);
                                 if (payload?.Type == "command" && !string.IsNullOrEmpty(payload.Command))
                                 {
-                                    Console.WriteLine($"[WebSocket Console] Comando recebido: {payload.Command}");
                                     await srv.SendCommandAsync(payload.Command);
                                 }
                             }

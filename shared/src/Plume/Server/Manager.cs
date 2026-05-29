@@ -29,13 +29,18 @@ public static class Manager {
   // Protege os modelos do Docker.DotNet contra o Trimming do NativeAOT
   [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ContainersListParameters))]
   [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ContainerListResponse))]
+  // Protege os conversores internos que o Docker.DotNet usa via Reflexão (Reflection) para montar a URL
+  [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Docker.DotNet.BoolQueryStringConverter", "Docker.DotNet")]
+  [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Docker.DotNet.TimeSpanSecondsQueryStringConverter", "Docker.DotNet")]
+  [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Docker.DotNet.TimeSpanQueryStringConverter", "Docker.DotNet")]
   public static async Task InitAsync() {
     string basePath = ConfigManager.GlobalConfig.App.Path;
+    
     var serverModels = DatabaseManager.Db.GetAllServers();
 
     // Map para lookup rápido do DB
     var modelMap = serverModels.ToDictionary(m => m.ServerId);
-
+    
     // Cria servers primeiro e popula os caches
     foreach(var model in serverModels) {
       var server = new Server(
@@ -51,12 +56,12 @@ public static class Manager {
         ShortIdCache[model.ServerId.Substring(0, 8)] = server;
       }
     }
-
+    
     // Lista containers do Docker (UMA vez só)
     var containers = await Docker.Containers.ListContainersAsync(new ContainersListParameters {
       All = true
     });
-
+    
     // Transforma em map: nome -> container de forma otimizada
     var containerMap = new Dictionary < string,
       ContainerListResponse > ();
@@ -66,14 +71,12 @@ public static class Manager {
         containerMap[cleanName] = c;
       }
     }
-
+    
     // Iterar pelo DB de forma performática
     foreach(var kvp in Servers) {
       var id = kvp.Key;
       var srv = kvp.Value;
       
-      
-
       srv.StartUsageMonitor(); // Método de extensão a ser criado em C#
 
       if (!containerMap.TryGetValue(id, out
@@ -98,7 +101,7 @@ public static class Manager {
         srv.WaitContainerExitAsync(); // Método de extensão
       }
     }
-
+    
     WhenStarted = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
   }
 

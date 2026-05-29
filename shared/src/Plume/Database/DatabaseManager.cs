@@ -1,6 +1,15 @@
 using System.Text.Json;
+using System.Text.Json.Serialization; // Adicionado para o AOT
 
 namespace Plume.Database;
+
+// --- ADICIONADO: Contexto específico para o banco de dados no Native AOT ---
+[JsonSerializable(typeof(DBData))]
+[JsonSerializable(typeof(ServerModel))]
+public partial class DatabaseJsonContext : JsonSerializerContext
+{
+}
+// --------------------------------------------------------------------------
 
 // Equivalente ao @Serializable data class ServerModel
 // Usamos 'record' para imutabilidade e o recurso 'with' (semelhante ao .copy() do Kotlin)
@@ -26,7 +35,8 @@ public class JsonDB {
   private readonly JsonSerializerOptions _jsonConfig = new JsonSerializerOptions {
     WriteIndented = true,
       PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-      PropertyNameCaseInsensitive = true
+      PropertyNameCaseInsensitive = true,
+      TypeInfoResolver = DatabaseJsonContext.Default // <-- ADICIONADO: Avisa o serializer para usar o código AOT gerado
   };
 
   public DBData Data {

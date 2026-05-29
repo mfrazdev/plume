@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Plume.Configuration;
+using Plume.Http;
 
 namespace Plume.Http.Routes.Server
 {
@@ -48,12 +49,30 @@ namespace Plume.Http.Routes.Server
         {
             var fileGroup = group.MapGroup("/servers/filemanager");
 
-            fileGroup.MapPost("/upload", (Delegate)HandleUpload);
-            fileGroup.MapGet("/download", (Delegate)HandleDirectDownload);
+            fileGroup.MapPost("/upload", async context =>
+            {
+                var result = await HandleUpload(context);
+                await result.ExecuteAsync(context);
+            });
+
+            fileGroup.MapGet("/download", async context =>
+            {
+                var result = await HandleDirectDownload(context);
+                await result.ExecuteAsync(context);
+            });
             
             // Aceita POST ou GET para o handler genérico, lendo o body se houver
-            fileGroup.MapPost("/{action}", FileManagerHandler);
-            fileGroup.MapGet("/{action}", FileManagerHandler);
+            fileGroup.MapPost("/{action}", async (string action, HttpContext context) =>
+            {
+                var result = await FileManagerHandler(action, context);
+                await result.ExecuteAsync(context);
+            });
+
+            fileGroup.MapGet("/{action}", async (string action, HttpContext context) =>
+            {
+                var result = await FileManagerHandler(action, context);
+                await result.ExecuteAsync(context);
+            });
         }
 
         private static async Task<IResult> FileManagerHandler(string action, HttpContext context)
@@ -69,24 +88,24 @@ namespace Plume.Http.Routes.Server
                 catch(Exception ex)
                 {
                     Console.WriteLine(ex.Message);
-                    return Results.Json(new { error = "Invalid JSON" }, statusCode: 400);
+                    return Reply.Json(new { error = "Invalid JSON" }, statusCode: 400);
                 }
             }
 
             if (body == null)
-                return Results.Json(new { error = "Invalid JSON or missing body" }, statusCode: 400);
+                return Reply.Json(new { error = "Invalid JSON or missing body" }, statusCode: 400);
 
             // Validações rigorosas
             // Validações rigorosas
             if (!ConfigManager.ValidateUUID(body.UserUuid.ToString()))
-                return Results.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+                return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
     
                 
             if (!ConfigManager.ValidateServerID(body.ServerId))
-                return Results.Json(new { error = "Invalid serverId" }, statusCode: 400);
+                return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
 
             if (!ConfigManager.HasPermission(body.UserUuid.ToString(), body.ServerId))
-                return Results.Json(new { error = "Sem permissão" }, statusCode: 403);
+                return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
 
             string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, body.ServerId));
             string relPath = SanitizePath(body.Path);
@@ -94,7 +113,7 @@ namespace Plume.Http.Routes.Server
 
             // Segurança contra Path Traversal
             if (!absPath.StartsWith(basePath))
-                return Results.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
+                return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
 
             long quotaBytes = (long)(body.Disk * 1024 * 1024);
 
@@ -103,7 +122,7 @@ namespace Plume.Http.Routes.Server
                 case "list":
                 {
                     if (!Directory.Exists(absPath))
-                        return Results.Json(new { error = "Diretório não encontrado" }, statusCode: 404);
+                        return Reply.Json(new { error = "Diretório não encontrado" }, statusCode: 404);
 
                     var dirInfo = new DirectoryInfo(absPath);
                     var items = new List<FileItem>();
@@ -117,16 +136,16 @@ namespace Plume.Http.Routes.Server
                         items.Add(new FileItem(file.Name, "file", file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, file.Name)));
                     }
 
-                    return Results.Ok(new { status = "success", items = items, path = "/" + relPath });
+                    return Reply.Json(new { status = "success", items = items, path = "/" + relPath });
                 }
 
                 case "read":
                 {
                     if (!File.Exists(absPath))
-                        return Results.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                        return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
 
                     string content = await File.ReadAllTextAsync(absPath);
-                    return Results.Ok(new { status = "success", content = content, path = "/" + relPath });
+                    return Reply.Json(new { status = "success", content = content, path = "/" + relPath });
                 }
 
                 case "write":
@@ -139,44 +158,44 @@ namespace Plume.Http.Routes.Server
                         long sizeDiff = newFileSize - oldSize;
 
                         if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                            return Results.Json(new { error = "Cota de disco excedida!" }, statusCode: 400);
+                            return Reply.Json(new { error = "Cota de disco excedida!" }, statusCode: 400);
                     }
 
                     Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
                     await File.WriteAllTextAsync(absPath, body.Content ?? "");
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
 
                 case "rename":
                 {
                     if (string.IsNullOrEmpty(body.NewName) || body.NewName.Contains("/") || body.NewName.Contains("\\"))
-                        return Results.Json(new { error = "Nome inválido" }, statusCode: 400);
+                        return Reply.Json(new { error = "Nome inválido" }, statusCode: 400);
 
                     string newAbs = Path.Combine(Path.GetDirectoryName(absPath)!, body.NewName);
                     
                     if (File.Exists(absPath)) File.Move(absPath, newAbs);
                     else if (Directory.Exists(absPath)) Directory.Move(absPath, newAbs);
                     
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
 
                 case "mkdir":
                 {
                     Directory.CreateDirectory(absPath);
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
 
                 case "delete":
                 {
                     DeleteRecursively(absPath);
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
 
                 case "download":
                 {
                     if (File.Exists(absPath))
                         return Results.File(absPath, fileDownloadName: Path.GetFileName(absPath));
-                    return Results.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                    return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
                 }
 
                 case "move":
@@ -185,20 +204,20 @@ namespace Plume.Http.Routes.Server
                     string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel, Path.GetFileName(absPath)));
 
                     if (!destAbs.StartsWith(basePath))
-                        return Results.Json(new { error = "Destino inválido" }, statusCode: 403);
+                        return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
 
                     Directory.CreateDirectory(Path.GetDirectoryName(destAbs)!);
                     
                     if (File.Exists(absPath)) File.Move(absPath, destAbs);
                     else if (Directory.Exists(absPath)) Directory.Move(absPath, destAbs);
                     
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
 
                 case "unarchive":
                 {
                     if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                        return Results.Json(new { error = "Cota de disco excedida, limpe espaço antes de extrair." }, statusCode: 400);
+                        return Reply.Json(new { error = "Cota de disco excedida, limpe espaço antes de extrair." }, statusCode: 400);
                         
                     return await HandleUnarchive(body, absPath, basePath);
                 }
@@ -215,20 +234,20 @@ namespace Plume.Http.Routes.Server
                             if (target.StartsWith(basePath))
                                 DeleteRecursively(target);
                         }
-                        return Results.Ok(new { status = "success" });
+                        return Reply.Json(new { status = "success" });
                     }
                     else if (body.Action.Equals("archive", StringComparison.OrdinalIgnoreCase))
                     {
                         if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                            return Results.Json(new { error = "Cota de disco cheia, impossível criar arquivo." }, statusCode: 400);
+                            return Reply.Json(new { error = "Cota de disco cheia, impossível criar arquivo." }, statusCode: 400);
                             
                         return await HandleMassArchive(pathsToProcess, basePath);
                     }
-                    return Results.Json(new { error = "Ação de mass desconhecida" }, statusCode: 400);
+                    return Reply.Json(new { error = "Ação de mass desconhecida" }, statusCode: 400);
                 }
 
                 default:
-                    return Results.Json(new { error = "Ação desconhecida" }, statusCode: 400);
+                    return Reply.Json(new { error = "Ação desconhecida" }, statusCode: 400);
             }
         }
 
@@ -238,17 +257,17 @@ namespace Plume.Http.Routes.Server
             string serverId = context.Request.Query["serverId"].ToString();
             string targetPath = context.Request.Query["path"].ToString();
 
-            if (!ConfigManager.ValidateUUID(userUuid)) return Results.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-            if (!ConfigManager.ValidateServerID(serverId)) return Results.Json(new { error = "Invalid serverId" }, statusCode: 400);
-            if (!ConfigManager.HasPermission(userUuid, serverId)) return Results.Json(new { error = "Sem permissão" }, statusCode: 403);
+            if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+            if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
+            if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
 
             string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
             string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
 
-            if (!absPath.StartsWith(basePath)) return Results.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
+            if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
 
             if (!File.Exists(absPath))
-                return Results.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
 
             return Results.File(absPath, fileDownloadName: Path.GetFileName(absPath));
         }
@@ -256,7 +275,7 @@ namespace Plume.Http.Routes.Server
         private static async Task<IResult> HandleUpload(HttpContext context)
         {
             if (!context.Request.HasFormContentType)
-                return Results.Json(new { error = "Esperado form-data" }, statusCode: 400);
+                return Reply.Json(new { error = "Esperado form-data" }, statusCode: 400);
 
             var form = await context.Request.ReadFormAsync();
             
@@ -265,18 +284,18 @@ namespace Plume.Http.Routes.Server
             string targetPath = form["path"].ToString();
             _ = double.TryParse(form["disk"].ToString(), out double diskFloat);
 
-            if (!ConfigManager.ValidateUUID(userUuid)) return Results.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-            if (!ConfigManager.ValidateServerID(serverId)) return Results.Json(new { error = "Invalid serverId" }, statusCode: 400);
-            if (!ConfigManager.HasPermission(userUuid, serverId)) return Results.Json(new { error = "Sem permissão" }, statusCode: 403);
+            if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+            if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
+            if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
 
             var file = form.Files.FirstOrDefault();
             if (file == null || file.Length == 0)
-                return Results.Json(new { error = "Arquivo não enviado" }, statusCode: 400);
+                return Reply.Json(new { error = "Arquivo não enviado" }, statusCode: 400);
 
             string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
             string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
 
-            if (!absPath.StartsWith(basePath)) return Results.Json(new { error = "Acesso negado" }, statusCode: 403);
+            if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado" }, statusCode: 403);
 
             long quotaBytes = (long)(diskFloat * 1024 * 1024);
 
@@ -287,7 +306,7 @@ namespace Plume.Http.Routes.Server
                 long sizeDiff = file.Length - oldSize;
 
                 if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                    return Results.Json(new { error = $"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)" }, statusCode: 400);
+                    return Reply.Json(new { error = $"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)" }, statusCode: 400);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
@@ -297,7 +316,7 @@ namespace Plume.Http.Routes.Server
                 await file.CopyToAsync(stream);
             }
 
-            return Results.Ok(new { status = "success" });
+            return Reply.Json(new { status = "success" });
         }
 
         private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath)
@@ -334,11 +353,11 @@ namespace Plume.Http.Routes.Server
                         }
                     }
                 });
-                return Results.Ok(new { status = "success" });
+                return Reply.Json(new { status = "success" });
             }
             catch (Exception e)
             {
-                return Results.Json(new { error = $"Falha ao criar arquivo zip: {e.Message}" }, statusCode: 500);
+                return Reply.Json(new { error = $"Falha ao criar arquivo zip: {e.Message}" }, statusCode: 500);
             }
         }
 
@@ -359,7 +378,7 @@ namespace Plume.Http.Routes.Server
             string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel));
 
             if (!destAbs.StartsWith(basePath))
-                return Results.Json(new { error = "Destino inválido" }, statusCode: 403);
+                return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
                 
             Directory.CreateDirectory(destAbs);
 
@@ -400,19 +419,19 @@ namespace Plume.Http.Routes.Server
                             entry.ExtractToFile(newPath, overwrite: true);
                         }
                     });
-                    return Results.Ok(new { status = "success" });
+                    return Reply.Json(new { status = "success" });
                 }
                 catch (Exception e)
                 {
-                    return Results.Json(new { error = $"Erro ao descompactar zip: {e.Message}" }, statusCode: 500);
+                    return Reply.Json(new { error = $"Erro ao descompactar zip: {e.Message}" }, statusCode: 500);
                 }
             }
             else if (absArchive.EndsWith(".tar.gz") || absArchive.EndsWith(".tgz"))
             {
-                return Results.Json(new { error = "Descompactação de tar.gz requer lib adicional no backend C# (Ex: SharpZipLib)." }, statusCode: 501);
+                return Reply.Json(new { error = "Descompactação de tar.gz requer lib adicional no backend C# (Ex: SharpZipLib)." }, statusCode: 501);
             }
 
-            return Results.Json(new { error = "Formato não suportado para descompactação" }, statusCode: 400);
+            return Reply.Json(new { error = "Formato não suportado para descompactação" }, statusCode: 400);
         }
 
         // --- Utils / Helpers ---

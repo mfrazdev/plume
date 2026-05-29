@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="app/app.csproj" />
+  <Project Path="http/http.csproj" />
+  <Project Path="shared/shared.csproj" />
+</Solution>

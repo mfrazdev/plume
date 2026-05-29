@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 
@@ -5,6 +6,12 @@ using Docker.DotNet.Models;
 namespace Plume.Server.Extending;
 
 public static class ServerMonitor {
+
+  // HACK: Forçando a instanciação genérica para o Native AOT
+  // O Newtonsoft.Json usa reflexão para criar esses dicionários internamente no Docker.DotNet,
+  // então precisamos referenciá-los aqui para o compilador AOT não apagá-los e gerar o código nativo!
+  private static readonly Dictionary<string, ulong> _aotHack1 = new();
+  private static readonly Dictionary<string, NetworkStats> _aotHack2 = new();
 
   extension(Server server)
   {
@@ -20,7 +27,7 @@ public static class ServerMonitor {
       server.StatsJob = Task.Run(async () => {
         while (server.Monitoring) {
           await server.UpdateStatsAsync();
-          await Task.Delay(1000);
+          await Task.Delay(500);
         }
       });
 
@@ -65,33 +72,25 @@ public static class ServerMonitor {
         }
 
         ContainerStatsResponse? st = null;
-        var tcs = new TaskCompletionSource<bool>();
 
-        // A MÁGICA: Usando nosso Progress Síncrono para evitar a "condição de corrida"
-        // que fazia a variável ler nulo e jogar a RAM pro zero do nada.
+        // A MÁGICA: Usando nosso Progress Síncrono para atualizar a variável 'st'
+        // Sem necessidade de TaskCompletionSource
         var progress = new SyncProgress<ContainerStatsResponse>(response => {
           st = response;
-          tcs.TrySetResult(true);
         });
 
+        // Cancela automaticamente a requisição se demorar mais de 5 segundos
         using var cts = new CancellationTokenSource();
+        cts.CancelAfter(5000);
 
+        // Como estamos usando await aqui, o código ESPERA a requisição terminar.
+        // Se o Docker travar, o cts.CancelAfter vai lançar uma OperationCanceledException e mandar pro Catch lá embaixo!
         await server.Docker.Containers.GetContainerStatsAsync(
           cId,
           new ContainerStatsParameters { Stream = false },
           progress,
           cts.Token
         );
-
-        // Aguarda o resultado da API OU cancela se demorar mais de 5 segundos
-        var timeoutTask = Task.Delay(5000, cts.Token);
-        var completed = await Task.WhenAny(tcs.Task, timeoutTask);
-
-        if (completed == timeoutTask) {
-          cts.Cancel(); // Estourou o tempo
-          server.ClearUsageStats();
-          return;
-        }
 
         if (st == null || st.MemoryStats == null) {
           server.ClearUsageStats();

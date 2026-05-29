@@ -40,39 +40,41 @@ namespace Plume.Logging
             Console.WriteLine($"{RED}{BOLD}[ {prefix} ]{RESET} {YELLOW}{threadName}{RESET} | {RED}{simpleName}{RESET}{msg}");
 
             var st = new StackTrace(ex, true);
-            int traceCount = 0;
+            var frames = st.GetFrames() ?? Array.Empty<StackFrame>();
+            
+            bool foundUserCode = false;
+            var outputLines = new List<string>();
 
-            // Pega cada linha do erro
-            foreach (var frame in st.GetFrames())
+            foreach (var frame in frames)
             {
                 var method = frame.GetMethod();
                 if (method == null) continue;
 
                 var declaringType = method.DeclaringType?.FullName ?? "";
+                bool isSystem = declaringType.StartsWith("System.") || 
+                                declaringType.StartsWith("Microsoft.");
 
-                // Filtro para ignorar classes de sistema, igual ignorava "java." ou "kotlin."
-                if (declaringType.StartsWith("System.") || 
-                    declaringType.StartsWith("Microsoft.") || 
-                    declaringType.StartsWith("System.Private.CoreLib"))
-                {
-                    continue;
-                }
+                if (!isSystem) foundUserCode = true;
 
-                if (traceCount < 15)
-                {
-                    var rawFileName = frame.GetFileName();
-                    
-                    // Se não tiver o arquivo físico (compilado em release), pega o nome da classe
-                    var fileName = !string.IsNullOrEmpty(rawFileName) 
-                        ? Path.GetFileNameWithoutExtension(rawFileName) 
-                        : (declaringType.Split('.').LastOrDefault() ?? "Unknown");
-                    
-                    var lineNumber = frame.GetFileLineNumber();
-                    var lineStr = lineNumber > 0 ? lineNumber.ToString() : "Unknown";
+                // Se for sistema, pula APENAS SE já achou código do usuário antes
+                if (isSystem && foundUserCode) continue;
 
-                    Console.WriteLine($"  {CYAN}{fileName}{RESET} : {RED}{lineStr}{RESET}");
-                    traceCount++;
-                }
+                var rawFileName = frame.GetFileName();
+                var fileName = !string.IsNullOrEmpty(rawFileName) 
+                    ? Path.GetFileNameWithoutExtension(rawFileName) 
+                    : (declaringType.Split('.').LastOrDefault() ?? declaringType);
+                
+                var lineNumber = frame.GetFileLineNumber();
+                var lineStr = lineNumber > 0 ? lineNumber.ToString() : "Unknown";
+
+                outputLines.Add($"  {CYAN}{fileName}{RESET} : {RED}{lineStr}{RESET}");
+                
+                if (outputLines.Count >= 15) break;
+            }
+
+            foreach (var line in outputLines)
+            {
+                Console.WriteLine(line);
             }
 
             // Exceções internas (Caused by)

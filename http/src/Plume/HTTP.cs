@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using Plume.Configuration;
 using Plume.Http.Routes;
 using Plume.Http.Routes.Server;
@@ -16,6 +18,26 @@ using Plume.Logging;
 
 namespace Plume.Http;
 
+    // =========================================================================
+    // HACK DO NATIVE AOT: Helper para converter qualquer coisa em JSON automaticamente
+    // =========================================================================
+    public static class Reply
+    {
+        private static readonly JsonSerializerSettings _settings = new()
+        {
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            Formatting = Formatting.None
+        };
+
+        public static IResult Json(object data, int statusCode = 200)
+        {
+            // O Newtonsoft usa reflexão em tempo de execução (automático!)
+            string jsonString = JsonConvert.SerializeObject(data, _settings);
+            // Retornamos como Content puro para o Minimal API não tentar usar o System.Text.Json chato
+            return Results.Content(jsonString, "application/json", statusCode: statusCode);
+        }
+    }
+
     public class HttpServer(ILogger<HttpServer> logger)
     {
         public void Start()
@@ -23,19 +45,23 @@ namespace Plume.Http;
             logger.LogInformation("Iniciando o servidor Lunar Plume na porta {AppPort}...", ConfigManager.GlobalConfig.App.Port);
 
             var builder = WebApplication.CreateBuilder();
+            
+            builder.Services.ConfigureHttpJsonOptions(options =>
+            {
+                options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
+            });
+            
             builder.Logging.ClearProviders();
             builder.Logging.AddPlumeLogger();
             builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
-            // Configuração do Servidor Web Embutido (Kestrel) - Substitui o Netty/CIO do Ktor
+            
             builder.WebHost.ConfigureKestrel(options =>
             {
                 if (ConfigManager.GlobalConfig.Ssl.Enabled)
                 {
                     try
                     {
-                        // No .NET, não precisamos mais daquele parser gigante do Kotlin.
-                        // O C# moderno lê arquivos .pem/.key nativamente para X509Certificate2!
                         var cert = X509Certificate2.CreateFromPemFile(
                             certPemFilePath: ConfigManager.GlobalConfig.Ssl.CertPath,
                             keyPemFilePath: ConfigManager.GlobalConfig.Ssl.KeyPath
@@ -58,14 +84,6 @@ namespace Plume.Http;
                 }
             });
 
-            // Otimização do ContentNegotiation (JSON)
-            builder.Services.ConfigureHttpJsonOptions(options =>
-            {
-                options.SerializerOptions.WriteIndented = false; // Igual Ktor: false pra voar na resposta
-                options.SerializerOptions.PropertyNameCaseInsensitive = true;
-            });
-
-            // Configuração do Rate Limit (100 chamadas por 1 minuto usando o IP)
             builder.Services.AddRateLimiter(options =>
             {
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
@@ -83,15 +101,18 @@ namespace Plume.Http;
                 options.OnRejected = async (context, token) =>
                 {
                     context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                    await context.HttpContext.Response.WriteAsJsonAsync(new Responses.ErrorResponse(
+                    context.HttpContext.Response.ContentType = "application/json";
+                    
+                    var errorJson = JsonConvert.SerializeObject(new Responses.ErrorResponse(
                         Status: 429,
                         Error: "Too Many Requests",
                         Message: "Rate limit exceeded"
-                    ), cancellationToken: token);
+                    ), new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() });
+                    
+                    await context.HttpContext.Response.WriteAsync(errorJson, token);
                 };
             });
 
-            // Configuração do CORS
             var remoteUrl = ConfigManager.GlobalConfig.Remote.Url;
             builder.Services.AddCors(options =>
             {
@@ -105,7 +126,6 @@ namespace Plume.Http;
                     }
                     else
                     {
-                        // Para funcionar AllowAnyHost junto com AllowCredentials no ASP.NET, usamos SetIsOriginAllowed
                         policy.SetIsOriginAllowed(_ => true);
                     }
 
@@ -121,12 +141,11 @@ namespace Plume.Http;
             app.UseCors();
             app.UseRateLimiter();
 
-            // Configurações Globais da Pipeline
             ConfigureSecurity(app);
             ConfigureStatusPages(app);
             RouteRegistry.RegisterAll(app);
 
-            app.Run(); // start(wait = true)
+            app.Run();
         }
 
         private void ConfigureSecurity(WebApplication app)
@@ -145,14 +164,12 @@ namespace Plume.Http;
 
                 bool isWebSocketUpgrade = context.WebSockets.IsWebSocketRequest;
                 
-                // Rotas que pulam a autenticação restrita
                 if (isWebSocketUpgrade || path.StartsWith("/ws") || path.Contains("filemanager") || path.Contains("/servers/usages"))
                 {
                     await next();
                     return;
                 }
 
-                // Pula Multipart FormData (ex: upload de arquivos pesados)
                 if (method == HttpMethods.Post && contentType.Contains("multipart/form-data", StringComparison.OrdinalIgnoreCase))
                 {
                     await next();
@@ -162,17 +179,15 @@ namespace Plume.Http;
                 string? authHeader = context.Request.Headers.Authorization;
                 string? bodyToken = null;
 
-                // SEU JEITO CLÁSSICO DE LER O JSON ATRÁS DO TOKEN MANTIDO AQUI:
                 if (string.IsNullOrEmpty(authHeader) && (method == HttpMethods.Post || method == HttpMethods.Put || method == HttpMethods.Patch))
                 {
-                    // Necessário ligar o buffering para que a Minimal API possa ler o corpo depois do Middleware
                     context.Request.EnableBuffering();
                     
                     try
                     {
                         using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
                         string bodyText = await reader.ReadToEndAsync();
-                        context.Request.Body.Position = 0; // Reseta o cursor do ponteiro pra quem for ler depois
+                        context.Request.Body.Position = 0;
 
                         if (bodyText.Contains("token"))
                         {
@@ -185,7 +200,6 @@ namespace Plume.Http;
                     }
                     catch
                     {
-                        // Se falhar a leitura, bodyToken será null e cairá na verificação de inválido
                     }
                 }
 
@@ -199,12 +213,15 @@ namespace Plume.Http;
 
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     context.Response.ContentType = "application/json";
-                    await context.Response.WriteAsJsonAsync(new Responses.ErrorResponse(
+                    
+                    var errorJson = JsonConvert.SerializeObject(new Responses.ErrorResponse(
                         Status: 403,
                         Error: "Forbidden",
                         Message: "Invalid token"
-                    ));
-                    return; // Finaliza a requisição aqui.
+                    ), new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() });
+                    
+                    await context.Response.WriteAsync(errorJson);
+                    return; 
                 }
 
                 await next();
@@ -213,7 +230,6 @@ namespace Plume.Http;
 
         private void ConfigureStatusPages(WebApplication app)
         {
-            // Middleware global de tratamento de erros (StatusPages do Ktor)
             app.UseExceptionHandler(exceptionHandlerApp =>
             {
                 exceptionHandlerApp.Run(async context =>
@@ -221,32 +237,33 @@ namespace Plume.Http;
                     var exceptionHandlerPathFeature = context.Features.Get<IExceptionHandlerPathFeature>();
                     var exception = exceptionHandlerPathFeature?.Error;
 
-                    if (exception is OperationCanceledException)
-                    {
-                        // Ignore/Silencia quando o cliente fecha a conexão
-                        return;
-                    }
+                    if (exception is OperationCanceledException) return;
 
-                    // Se for erro de request inválido (ex: parser do JSON falhou)
+                    context.Response.ContentType = "application/json";
+                    var jsonSettings = new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+
                     if (exception is BadHttpRequestException)
                     {
                         context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                        await context.Response.WriteAsJsonAsync(new Responses.ErrorResponse(
+                        var errorJson = JsonConvert.SerializeObject(new Responses.ErrorResponse(
                             Status: 400,
                             Error: "Bad Request",
                             Message: exception.Message
-                        ));
+                        ), jsonSettings);
+                        await context.Response.WriteAsync(errorJson);
                         return;
                     }
 
-                    // Erro interno (Internal Server Error)
                     logger.LogError(exception, "Erro interno detectado");
                     context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                    await context.Response.WriteAsJsonAsync(new Responses.ErrorResponse(
+                    
+                    var internalJson = JsonConvert.SerializeObject(new Responses.ErrorResponse(
                         Status: 500,
                         Error: "Internal Server Error",
                         Message: exception?.Message ?? "Ocorreu um erro inesperado."
-                    ));
+                    ), jsonSettings);
+                    
+                    await context.Response.WriteAsync(internalJson);
                 });
             });
         }
@@ -254,16 +271,16 @@ namespace Plume.Http;
 
     public static class RouteRegistry
     {
-        // Central de roteamento - usando extension methods do ASP.NET Core
         public static void RegisterAll(WebApplication app)
         {
+            app.MapGet("/", () => Results.Text("Plume HTTP OK", "text/plain"));
+
             app.MapGet("/stop", () =>
             {
                 Environment.Exit(0);
                 return Results.Ok();
             });
 
-            // Agrupando com o prefixo "/api/v1"
             var apiGroup = app.MapGroup("/api/v1");
 
             StatusRoute.Register(apiGroup);
@@ -274,11 +291,17 @@ namespace Plume.Http;
             DeleteRoute.Register(apiGroup);
             UsagesRoute.Register(apiGroup);
             FileManagerRoute.Register(apiGroup);
+
+            app.MapFallback(() => Reply.Json(new Responses.ErrorResponse(
+                Status: 404,
+                Error: "Not Found",
+                Message: "Route not found"
+            ), statusCode: 404));
         }
     }
 
-    // Records globais auxiliares da API
     public static class Responses
     {
         public record ErrorResponse(int Status, string Error, string Message);
     }
+

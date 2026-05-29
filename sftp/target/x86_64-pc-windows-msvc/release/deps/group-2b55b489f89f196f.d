@@ -1,0 +1,10 @@
+E:\panel\plume-net\plume_sftp_core\target\x86_64-pc-windows-msvc\release\deps\group-2b55b489f89f196f.d: C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\lib.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\cofactor.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\prime.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\wnaf.rs
+
+E:\panel\plume-net\plume_sftp_core\target\x86_64-pc-windows-msvc\release\deps\libgroup-2b55b489f89f196f.rlib: C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\lib.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\cofactor.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\prime.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\wnaf.rs
+
+E:\panel\plume-net\plume_sftp_core\target\x86_64-pc-windows-msvc\release\deps\libgroup-2b55b489f89f196f.rmeta: C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\lib.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\cofactor.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\prime.rs C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\wnaf.rs
+
+C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\lib.rs:
+C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\cofactor.rs:
+C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\prime.rs:
+C:\Users\Murillo\ Frazão\ Cunha\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\group-0.13.0\src\wnaf.rs:

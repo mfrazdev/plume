@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "run-app",
+            "type": "shell",
+            "command": ".\\app.exe",
+            "options": {
+                "cwd": "E:\\panel\\plume-net\\bin\\app\\Release\\win-x64\\publish"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

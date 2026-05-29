@@ -1,0 +1,14 @@
+[package]
+name = "plume_sftp_core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] } # O motor assíncrono (equivalente às Goroutines, mas sem lixo na memória)
+russh = "0.44"                                 # Biblioteca SSH oficial e robusta
+russh-keys = "0.44"                            # Gerenciador de chaves RSA/Ed25519
+async-trait = "0.1"                            # Necessário para o Russh
+anyhow = "1.0"                                 # Tratamento de erros facilitado

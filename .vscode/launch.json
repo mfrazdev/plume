@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Build Rust (windows-amd64)",
+            "runtimeExecutable": "node",
+            "program": "${workspaceFolder}/build.js",
+            "args": [
+                "--only-rust",
+                "--distro",
+                "windows-amd64"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Build + Run C# (windows-amd64)",
+            "runtimeExecutable": "node",
+            "program": "${workspaceFolder}/build.js",
+            "args": [
+                "--csharp",
+                "--distro",
+                "windows-amd64"
+            ],
+            "console": "integratedTerminal",
+            "postDebugTask": "run-app"
+        }
+    ]
+}
