@@ -22,12 +22,22 @@
         <NoWarn>$(NoWarn);CA1805;CA1816;CA2101;CA1848;CA1873;CA1866;CA1860;CA1310;CA1001;CA1305;CA2201;CA1304;CA1311;CA1835;CA1869;CA1847;CA1861;CA1854;CA1822;SYSLIB1054;CA1852;CA2254;SYSLIB1045;CA1826</NoWarn>
     </PropertyGroup>
 
-    <!-- PONTE DAS VARIÁVEIS DE BUILD (INJEÇÃO NO NATIVE AOT) -->
+    <PropertyGroup>
+        <FinalAppVersion Condition="'$(AppVersion)' != ''">$(AppVersion)</FinalAppVersion>
+        <FinalAppVersion Condition="'$(AppVersion)' == ''">$(TAG_NAME)</FinalAppVersion>
+
+        <FinalAppCommit Condition="'$(AppCommit)' != ''">$(AppCommit)</FinalAppCommit>
+        <FinalAppCommit Condition="'$(AppCommit)' == ''">$(GITHUB_SHA)</FinalAppCommit>
+
+        <FinalAppBuildTime Condition="'$(AppBuildTime)' != ''">$(AppBuildTime)</FinalAppBuildTime>
+        <FinalAppBuildTime Condition="'$(AppBuildTime)' == ''">$(BUILD_TIME)</FinalAppBuildTime>
+    </PropertyGroup>
+
     <ItemGroup>
-        <AssemblyMetadata Include="AppVersion" Value="$(AppVersion)" Condition="'$(AppVersion)' != ''" />
-        <AssemblyMetadata Include="AppCommit" Value="$(AppCommit)" Condition="'$(AppCommit)' != ''" />
-        <AssemblyMetadata Include="AppBuildDate" Value="$(AppBuildDate)" Condition="'$(AppBuildDate)' != ''" />
-        <AssemblyMetadata Include="AppBuildTime" Value="$(AppBuildTime)" Condition="'$(AppBuildTime)' != ''" />
+        <AssemblyMetadata Include="AppVersion" Value="$(FinalAppVersion)" Condition="'$(FinalAppVersion)' != ''" />
+        <AssemblyMetadata Include="AppCommit" Value="$(FinalAppCommit)" Condition="'$(FinalAppCommit)' != ''" />
+        <AssemblyMetadata Include="AppBuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))" />
+        <AssemblyMetadata Include="AppBuildTime" Value="$(FinalAppBuildTime)" Condition="'$(FinalAppBuildTime)' != ''" />
     </ItemGroup>
 
     <ItemGroup>
