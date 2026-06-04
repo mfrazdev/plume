@@ -190,7 +190,7 @@ public static class VersionManager
         // Atenção: Seu GH Action do C# zipava o arquivo (plumesftp-{rid}.zip). 
         // Esse código pressupõe que o GitHub Release possui o executável direto, igual ao Go. 
         // Se enviar zipado no release, terá que usar System.IO.Compression.ZipFile aqui.
-        string fileName = $"feather-{os}-{arch}{ext}";
+        string fileName = $"plume-{os}-{arch}{ext}";
         string downloadUrl = $"https://github.com/{GithubRepo}/releases/download/{tagForLink}/{fileName}";
 
         string exePath = Process.GetCurrentProcess().MainModule?.FileName;
