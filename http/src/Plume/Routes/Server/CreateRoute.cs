@@ -9,7 +9,7 @@ namespace Plume.Http.Routes.Server
 {
     public static class CreateRoute
     {
-        // DTO para mapear o JSON recebido no body
+        // DTO limpo, sem o token, já que o Middleware lida com isso.
         public record CreatePayload(
             string ServerId = "",
             string UserUuid = ""
@@ -34,6 +34,10 @@ namespace Plume.Http.Routes.Server
                 // Validação de permissões de administrador
                 if (!ConfigManager.UserIsAdmin(body.UserUuid))
                     return Reply.Json(new { error = "User does not have admin permissions" }, statusCode: 403);
+
+                // CORREÇÃO: Previne que um servidor existente seja sobrescrito ou corrompido
+                if (Manager.Get(body.ServerId) != null)
+                    return Reply.Json(new { error = "Server already exists" }, statusCode: 409);
 
                 // Cria o servidor usando o Manager
                 Manager.Create(body.ServerId);

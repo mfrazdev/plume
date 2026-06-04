@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -65,7 +67,11 @@ public static class ActionsRoute
         if (string.IsNullOrEmpty(body.UserUuid) || !ConfigManager.ValidateUUID(body.UserUuid))
             return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
 
-        if (body.Token != ConfigManager.GlobalConfig.Remote.Token)
+        // CORREÇÃO: Prevenção contra Timing Attacks usando FixedTimeEquals
+        var providedToken = Encoding.UTF8.GetBytes(body.Token ?? "");
+        var expectedToken = Encoding.UTF8.GetBytes(ConfigManager.GlobalConfig.Remote.Token ?? "");
+        
+        if (providedToken.Length == 0 || expectedToken.Length == 0 || !CryptographicOperations.FixedTimeEquals(providedToken, expectedToken))
             return Reply.Json(new { error = "Invalid token" }, statusCode: 403);
 
         var srv = Manager.Get(body.ServerId);
@@ -146,15 +152,19 @@ public static class ActionsRoute
                 }
                 else if (body.Action.Equals("restart", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!srv.IsRestarting)
+                    // CORREÇÃO: Condição de Corrida (Evitar disparos duplicados em requests simultâneos)
+                    lock (srv)
                     {
-                        srv.IsRestarting = true;
-                        _ = Task.Run(async () =>
+                        if (!srv.IsRestarting)
                         {
-                            await srv.KillAsync();
-                            await Task.Delay(1000);
-                            await srv.StartAsync(startData);
-                        });
+                            srv.IsRestarting = true;
+                            _ = Task.Run(async () =>
+                            {
+                                await srv.KillAsync();
+                                await Task.Delay(1000);
+                                await srv.StartAsync(startData);
+                            });
+                        }
                     }
                 }
                 else // install
@@ -168,16 +178,19 @@ public static class ActionsRoute
                 break;
 
             case "stop":
-                if (!srv.IsStopping)
+                // CORREÇÃO: Condição de Corrida (Evitar disparos duplicados)
+                lock (srv)
                 {
-                    srv.IsStopping = true;
-                    srv.EmitLive("status", "Servidor marcado como desligando...");
-                    if (body.Command == "^C" || body.Command == "^K")
-                        _ = Task.Run(() => srv.KillAsync());
-                    else
-                        _ = Task.Run(() => srv.SendCommandAsync(body.Command));
+                    if (!srv.IsStopping)
+                    {
+                        srv.IsStopping = true;
+                        srv.EmitLive("status", "Servidor marcado como desligando...");
+                        if (body.Command == "^C" || body.Command == "^K")
+                            _ = Task.Run(() => srv.KillAsync());
+                        else
+                            _ = Task.Run(() => srv.SendCommandAsync(body.Command));
+                    }
                 }
-
                 break;
 
             case "kill":

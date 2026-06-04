@@ -43,7 +43,7 @@ namespace Plume.Http;
     {
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            logger.LogInformation("Iniciando o servidor Lunar Plume na porta {AppPort}...",
+            logger.LogInformation("Iniciando Lunar Plume na porta {AppPort}...",
                 ConfigManager.GlobalConfig.App.Port);
 
             var builder = WebApplication.CreateBuilder();
