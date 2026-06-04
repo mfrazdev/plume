@@ -145,28 +145,6 @@ namespace Plume.Http;
             ConfigureStatusPages(app);
             RouteRegistry.RegisterAll(app);
 
-            app.MapPost("/api/v1/update", async context =>
-            {
-                try
-                {
-                    await VersionManager.UpdateAsync();
-
-                    Reply.Json(new
-                    {
-                        status = "success",
-                    });
-                }
-                catch (Exception e)
-                {
-                    Reply.Json(new
-                    {
-                        status = "error",
-                        error = e.Message
-                    });
-                    throw e;
-                    
-                }
-            });
 
             await app.RunAsync();
         }
