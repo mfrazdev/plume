@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -22,7 +21,7 @@ namespace Plume.Http.Routes.Server
 
         // DTOs
         public record FileBody(
-            int UserUuid = 0, // <-- AQUI! Voltamos para int para o JSON não surtar
+            int UserUuid = 0,
             string ServerId = "",
             double Disk = 0.0,
             string Path = "",
@@ -42,7 +41,6 @@ namespace Plume.Http.Routes.Server
             string Path
         );
 
-        // O Helper do Ktor correspondente
         private static string GlobalBasePath => Path.Combine(ConfigManager.GlobalConfig.App.Path, "servers");
 
         public static void Register(RouteGroupBuilder group)
@@ -61,7 +59,6 @@ namespace Plume.Http.Routes.Server
                 await result.ExecuteAsync(context);
             });
             
-            // Aceita POST ou GET para o handler genérico, lendo o body se houver
             fileGroup.MapPost("/{action}", async (string action, HttpContext context) =>
             {
                 var result = await FileManagerHandler(action, context);
@@ -96,11 +93,9 @@ namespace Plume.Http.Routes.Server
                 return Reply.Json(new { error = "Invalid JSON or missing body" }, statusCode: 400);
 
             // Validações rigorosas
-            // Validações rigorosas
             if (!ConfigManager.ValidateUUID(body.UserUuid.ToString()))
                 return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
     
-                
             if (!ConfigManager.ValidateServerID(body.ServerId))
                 return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
 
@@ -117,159 +112,206 @@ namespace Plume.Http.Routes.Server
 
             long quotaBytes = (long)(body.Disk * 1024 * 1024);
 
-            switch (action.ToLower())
+            // Envolvemos tudo em um try-catch geral para evitar erros 500 brutos por conta de I/O
+            try
             {
-                case "list":
+                switch (action.ToLower())
                 {
-                    if (!Directory.Exists(absPath))
-                        return Reply.Json(new { error = "Diretório não encontrado" }, statusCode: 404);
-
-                    var dirInfo = new DirectoryInfo(absPath);
-                    var items = new List<FileItem>();
-
-                    foreach (var dir in dirInfo.GetDirectories())
+                    case "list":
                     {
-                        items.Add(new FileItem(dir.Name, "folder", 0, new DateTimeOffset(dir.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, dir.Name)));
-                    }
-                    foreach (var file in dirInfo.GetFiles())
-                    {
-                        items.Add(new FileItem(file.Name, "file", file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, file.Name)));
-                    }
+                        if (!Directory.Exists(absPath))
+                            return Reply.Json(new { error = "Diretório não encontrado" }, statusCode: 404);
 
-                    return Reply.Json(new { status = "success", items = items, path = "/" + relPath });
-                }
+                        var dirInfo = new DirectoryInfo(absPath);
+                        var items = new List<FileItem>();
 
-                case "read":
-                {
-                    if (!File.Exists(absPath))
-                        return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
-
-                    string content = await File.ReadAllTextAsync(absPath);
-                    return Reply.Json(new { status = "success", content = content, path = "/" + relPath });
-                }
-
-                case "write":
-                {
-                    if (quotaBytes > 0)
-                    {
-                        long currentSize = GetServerDiskUsage(basePath);
-                        long oldSize = File.Exists(absPath) ? new FileInfo(absPath).Length : 0L;
-                        long newFileSize = System.Text.Encoding.UTF8.GetByteCount(body.Content ?? "");
-                        long sizeDiff = newFileSize - oldSize;
-
-                        if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                            return Reply.Json(new { error = "Cota de disco excedida!" }, statusCode: 400);
-                    }
-
-                    Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
-                    await File.WriteAllTextAsync(absPath, body.Content ?? "");
-                    return Reply.Json(new { status = "success" });
-                }
-
-                case "rename":
-                {
-                    if (string.IsNullOrEmpty(body.NewName) || body.NewName.Contains("/") || body.NewName.Contains("\\"))
-                        return Reply.Json(new { error = "Nome inválido" }, statusCode: 400);
-
-                    string newAbs = Path.Combine(Path.GetDirectoryName(absPath)!, body.NewName);
-                    
-                    if (File.Exists(absPath)) File.Move(absPath, newAbs);
-                    else if (Directory.Exists(absPath)) Directory.Move(absPath, newAbs);
-                    
-                    return Reply.Json(new { status = "success" });
-                }
-
-                case "mkdir":
-                {
-                    Directory.CreateDirectory(absPath);
-                    return Reply.Json(new { status = "success" });
-                }
-
-                case "delete":
-                {
-                    DeleteRecursively(absPath);
-                    return Reply.Json(new { status = "success" });
-                }
-
-                case "download":
-                {
-                    if (File.Exists(absPath))
-                        return Results.File(absPath, fileDownloadName: Path.GetFileName(absPath));
-                    return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
-                }
-
-                case "move":
-                {
-                    string destRel = SanitizePath(body.To);
-                    string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel, Path.GetFileName(absPath)));
-
-                    if (!destAbs.StartsWith(basePath))
-                        return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
-
-                    Directory.CreateDirectory(Path.GetDirectoryName(destAbs)!);
-                    
-                    if (File.Exists(absPath)) File.Move(absPath, destAbs);
-                    else if (Directory.Exists(absPath)) Directory.Move(absPath, destAbs);
-                    
-                    return Reply.Json(new { status = "success" });
-                }
-
-                case "unarchive":
-                {
-                    if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                        return Reply.Json(new { error = "Cota de disco excedida, limpe espaço antes de extrair." }, statusCode: 400);
-                        
-                    return await HandleUnarchive(body, absPath, basePath);
-                }
-
-                case "mass":
-                {
-                    var pathsToProcess = body.Paths ?? new List<string>();
-                    
-                    if (body.Action.Equals("delete", StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var p in pathsToProcess)
+                        // Evitar quebra caso uma pasta exija permissões de ADM do Windows/Linux
+                        try
                         {
-                            string target = Path.GetFullPath(Path.Combine(basePath, SanitizePath(p)));
-                            if (target.StartsWith(basePath))
-                                DeleteRecursively(target);
+                            foreach (var dir in dirInfo.GetDirectories())
+                            {
+                                items.Add(new FileItem(dir.Name, "folder", 0, new DateTimeOffset(dir.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, dir.Name)));
+                            }
+                            foreach (var file in dirInfo.GetFiles())
+                            {
+                                items.Add(new FileItem(file.Name, "file", file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, file.Name)));
+                            }
                         }
+                        catch (Exception ex)
+                        {
+                            return Reply.Json(new { error = $"Erro ao listar diretório: {ex.Message}" }, statusCode: 500);
+                        }
+
+                        return Reply.Json(new { status = "success", items = items, path = "/" + relPath });
+                    }
+
+                    case "read":
+                    {
+                        if (!File.Exists(absPath))
+                            return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+
+                        // FileShare.ReadWrite evita crash se um servidor estiver escrevendo no arquivo log
+                        using var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var sr = new StreamReader(fs);
+                        string content = await sr.ReadToEndAsync();
+                        return Reply.Json(new { status = "success", content = content, path = "/" + relPath });
+                    }
+
+                    case "write":
+                    {
+                        if (quotaBytes > 0)
+                        {
+                            long currentSize = GetServerDiskUsage(basePath);
+                            long oldSize = File.Exists(absPath) ? new FileInfo(absPath).Length : 0L;
+                            long newFileSize = System.Text.Encoding.UTF8.GetByteCount(body.Content ?? "");
+                            long sizeDiff = newFileSize - oldSize;
+
+                            if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
+                                return Reply.Json(new { error = "Cota de disco excedida!" }, statusCode: 400);
+                        }
+
+                        Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
+                        
+                        using var fs = new FileStream(absPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                        using var sw = new StreamWriter(fs);
+                        await sw.WriteAsync(body.Content ?? "");
                         return Reply.Json(new { status = "success" });
                     }
-                    else if (body.Action.Equals("archive", StringComparison.OrdinalIgnoreCase))
+
+                    case "rename":
+                    {
+                        if (string.IsNullOrEmpty(body.NewName) || body.NewName.Contains("/") || body.NewName.Contains("\\"))
+                            return Reply.Json(new { error = "Nome inválido" }, statusCode: 400);
+
+                        string newAbs = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(absPath)!, body.NewName));
+                        
+                        if (File.Exists(newAbs) || Directory.Exists(newAbs))
+                            return Reply.Json(new { error = "Já existe um item com esse nome no destino." }, statusCode: 400);
+
+                        if (File.Exists(absPath)) File.Move(absPath, newAbs);
+                        else if (Directory.Exists(absPath)) Directory.Move(absPath, newAbs);
+                        
+                        return Reply.Json(new { status = "success" });
+                    }
+
+                    case "mkdir":
+                    {
+                        Directory.CreateDirectory(absPath);
+                        return Reply.Json(new { status = "success" });
+                    }
+
+                    case "delete":
+                    {
+                        DeleteRecursively(absPath);
+                        return Reply.Json(new { status = "success" });
+                    }
+
+                    case "download":
+                    {
+                        if (File.Exists(absPath))
+                        {
+                            // Envia via stream para não dar lock crash
+                            var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            return Results.File(fs, fileDownloadName: Path.GetFileName(absPath));
+                        }
+                        return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                    }
+
+                    case "move":
+                    {
+                        string destRel = SanitizePath(body.To);
+                        // Solução definitiva pro move: DirectoryInfo captura o nome corretamente (seja pasta ou arquivo)
+                        string itemName = new DirectoryInfo(absPath).Name; 
+                        string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel, itemName));
+
+                        if (!destAbs.StartsWith(basePath))
+                            return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
+
+                        if (File.Exists(destAbs) || Directory.Exists(destAbs))
+                            return Reply.Json(new { error = "Já existe um item com esse nome no destino." }, statusCode: 400);
+
+                        Directory.CreateDirectory(Path.GetDirectoryName(destAbs)!);
+                        
+                        if (File.Exists(absPath)) 
+                            File.Move(absPath, destAbs);
+                        else if (Directory.Exists(absPath)) 
+                            Directory.Move(absPath, destAbs);
+                        else 
+                            return Reply.Json(new { error = "Origem não encontrada" }, statusCode: 404);
+                        
+                        return Reply.Json(new { status = "success" });
+                    }
+
+                    case "unarchive":
                     {
                         if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                            return Reply.Json(new { error = "Cota de disco cheia, impossível criar arquivo." }, statusCode: 400);
+                            return Reply.Json(new { error = "Cota de disco excedida, limpe espaço antes de extrair." }, statusCode: 400);
                             
-                        return await HandleMassArchive(pathsToProcess, basePath);
+                        return await HandleUnarchive(body, absPath, basePath);
                     }
-                    return Reply.Json(new { error = "Ação de mass desconhecida" }, statusCode: 400);
-                }
 
-                default:
-                    return Reply.Json(new { error = "Ação desconhecida" }, statusCode: 400);
+                    case "mass":
+                    {
+                        var pathsToProcess = body.Paths ?? new List<string>();
+                        
+                        if (body.Action.Equals("delete", StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (var p in pathsToProcess)
+                        {
+                                string target = Path.GetFullPath(Path.Combine(basePath, SanitizePath(p)));
+                                if (target.StartsWith(basePath))
+                                    DeleteRecursively(target);
+                            }
+                            return Reply.Json(new { status = "success" });
+                        }
+                        else if (body.Action.Equals("archive", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
+                                return Reply.Json(new { error = "Cota de disco cheia, impossível criar arquivo." }, statusCode: 400);
+                                
+                            // absPath aqui será o diretório atual do usuário, garantindo que o ZIP seja salvo onde ele está!
+                            return await HandleMassArchive(pathsToProcess, basePath, absPath);
+                        }
+                        return Reply.Json(new { error = "Ação de mass desconhecida" }, statusCode: 400);
+                    }
+
+                    default:
+                        return Reply.Json(new { error = "Ação desconhecida" }, statusCode: 400);
+                }
+            }
+            catch (Exception ex)
+            {
+                return Reply.Json(new { error = $"Erro ao executar ação: {ex.Message}" }, statusCode: 500);
             }
         }
 
         private static async Task<IResult> HandleDirectDownload(HttpContext context)
         {
-            string userUuid = context.Request.Query["userUuid"].ToString();
-            string serverId = context.Request.Query["serverId"].ToString();
-            string targetPath = context.Request.Query["path"].ToString();
+            try
+            {
+                string userUuid = context.Request.Query["userUuid"].ToString();
+                string serverId = context.Request.Query["serverId"].ToString();
+                string targetPath = context.Request.Query["path"].ToString();
 
-            if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-            if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
-            if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
+                if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+                if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
+                if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
 
-            string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
-            string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
+                string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
+                string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
 
-            if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
+                if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
 
-            if (!File.Exists(absPath))
-                return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                if (!File.Exists(absPath))
+                    return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
 
-            return Results.File(absPath, fileDownloadName: Path.GetFileName(absPath));
+                var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                return Results.File(fs, fileDownloadName: Path.GetFileName(absPath));
+            }
+            catch (Exception ex)
+            {
+                return Reply.Json(new { error = $"Erro ao processar download: {ex.Message}" }, statusCode: 500);
+            }
         }
 
         private static async Task<IResult> HandleUpload(HttpContext context)
@@ -277,53 +319,61 @@ namespace Plume.Http.Routes.Server
             if (!context.Request.HasFormContentType)
                 return Reply.Json(new { error = "Esperado form-data" }, statusCode: 400);
 
-            var form = await context.Request.ReadFormAsync();
-            
-            string userUuid = form["userUuid"].ToString();
-            string serverId = form["serverId"].ToString();
-            string targetPath = form["path"].ToString();
-            _ = double.TryParse(form["disk"].ToString(), out double diskFloat);
-
-            if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-            if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
-            if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
-
-            var file = form.Files.FirstOrDefault();
-            if (file == null || file.Length == 0)
-                return Reply.Json(new { error = "Arquivo não enviado" }, statusCode: 400);
-
-            string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
-            string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
-
-            if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado" }, statusCode: 403);
-
-            long quotaBytes = (long)(diskFloat * 1024 * 1024);
-
-            if (quotaBytes > 0)
+            try
             {
-                long currentSize = GetServerDiskUsage(basePath);
-                long oldSize = File.Exists(absPath) ? new FileInfo(absPath).Length : 0L;
-                long sizeDiff = file.Length - oldSize;
+                var form = await context.Request.ReadFormAsync();
+                
+                string userUuid = form["userUuid"].ToString();
+                string serverId = form["serverId"].ToString();
+                string targetPath = form["path"].ToString();
+                _ = double.TryParse(form["disk"].ToString(), out double diskFloat);
 
-                if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                    return Reply.Json(new { error = $"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)" }, statusCode: 400);
+                if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+                if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
+                if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
+
+                var file = form.Files.FirstOrDefault();
+                if (file == null || file.Length == 0)
+                    return Reply.Json(new { error = "Arquivo não enviado" }, statusCode: 400);
+
+                string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
+                string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
+
+                if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado" }, statusCode: 403);
+
+                long quotaBytes = (long)(diskFloat * 1024 * 1024);
+
+                if (quotaBytes > 0)
+                {
+                    long currentSize = GetServerDiskUsage(basePath);
+                    long oldSize = File.Exists(absPath) ? new FileInfo(absPath).Length : 0L;
+                    long sizeDiff = file.Length - oldSize;
+
+                    if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
+                        return Reply.Json(new { error = $"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)" }, statusCode: 400);
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
+
+                using (var stream = new FileStream(absPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                return Reply.Json(new { status = "success" });
             }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
-
-            using (var stream = new FileStream(absPath, FileMode.Create))
+            catch (Exception ex)
             {
-                await file.CopyToAsync(stream);
+                return Reply.Json(new { error = $"Erro no upload: {ex.Message}" }, statusCode: 500);
             }
-
-            return Reply.Json(new { status = "success" });
         }
 
-        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath)
+        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath, string currentDirAbsPath)
         {
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            string zipName = $"{timestamp}.zip";
-            string zipFile = Path.Combine(basePath, zipName);
+            string zipName = $"archive-{timestamp}.zip";
+            // Correção: Agora o zip vai ser salvo no currentDirAbsPath (a pasta atual de ondem chamaram a ação)
+            string zipFile = Path.Combine(currentDirAbsPath, zipName); 
 
             try
             {
@@ -340,7 +390,7 @@ namespace Plume.Http.Routes.Server
                         if (File.Exists(targetPath))
                         {
                             string relPath = Path.GetRelativePath(basePath, targetPath).Replace("\\", "/");
-                            archive.CreateEntryFromFile(targetPath, relPath, CompressionLevel.NoCompression);
+                            AddFileToArchive(archive, targetPath, relPath);
                         }
                         else if (Directory.Exists(targetPath))
                         {
@@ -348,7 +398,7 @@ namespace Plume.Http.Routes.Server
                             foreach (var f in files)
                             {
                                 string relPath = Path.GetRelativePath(basePath, f).Replace("\\", "/");
-                                archive.CreateEntryFromFile(f, relPath, CompressionLevel.NoCompression);
+                                AddFileToArchive(archive, f, relPath);
                             }
                         }
                     }
@@ -357,8 +407,19 @@ namespace Plume.Http.Routes.Server
             }
             catch (Exception e)
             {
+                // Limpeza em caso de erro na compactação
+                if (File.Exists(zipFile)) File.Delete(zipFile); 
                 return Reply.Json(new { error = $"Falha ao criar arquivo zip: {e.Message}" }, statusCode: 500);
             }
+        }
+
+        private static void AddFileToArchive(ZipArchive archive, string filePath, string entryName)
+        {
+            // FileShare.ReadWrite fundamental pra não explodir ao clipar arquivos abertos/log servers
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var entry = archive.CreateEntry(entryName, CompressionLevel.NoCompression);
+            using var entryStream = entry.Open();
+            fs.CopyTo(entryStream);
         }
 
         private static async Task<IResult> HandleUnarchive(FileBody body, string absArchive, string basePath)
@@ -388,7 +449,8 @@ namespace Plume.Http.Routes.Server
                 {
                     await Task.Run(() =>
                     {
-                        using var archive = ZipFile.OpenRead(absArchive);
+                        using var fs = new FileStream(absArchive, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
                         long totalSize = 0;
                         
                         if (archive.Entries.Count > MAX_ZIP_FILES)
@@ -398,11 +460,10 @@ namespace Plume.Http.Routes.Server
                         {
                             string newPath = Path.GetFullPath(Path.Combine(destAbs, entry.FullName));
                             
-                            // Defesa de Zip Slip
                             if (!newPath.StartsWith(destAbs))
                                 throw new Exception("Zip Slip detectado");
 
-                            if (string.IsNullOrEmpty(entry.Name)) // É um diretório
+                            if (string.IsNullOrEmpty(entry.Name) || entry.FullName.EndsWith("/")) 
                             {
                                 Directory.CreateDirectory(newPath);
                                 continue;
@@ -416,7 +477,11 @@ namespace Plume.Http.Routes.Server
                                 throw new Exception("Tamanho total descompactado excedeu o limite");
 
                             Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
-                            entry.ExtractToFile(newPath, overwrite: true);
+
+                            // Extração manual via stream para sobrescrever tranquilamente
+                            using var entryStream = entry.Open();
+                            using var destStream = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                            entryStream.CopyTo(destStream);
                         }
                     });
                     return Reply.Json(new { status = "success" });
@@ -435,7 +500,7 @@ namespace Plume.Http.Routes.Server
         }
 
         // --- Utils / Helpers ---
-        private static string SanitizePath(string path)
+        private static string SanitizePath(string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return "";
             var segments = path.Replace("\\", "/").Split('/')
@@ -451,15 +516,32 @@ namespace Plume.Http.Routes.Server
         private static long GetServerDiskUsage(string baseFolder)
         {
             if (!Directory.Exists(baseFolder)) return 0L;
-            return new DirectoryInfo(baseFolder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            // Catch caso não consiga acessar algo interno no calculo da cota
+            try {
+                return new DirectoryInfo(baseFolder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            } catch {
+                return 0L;
+            }
         }
 
         private static void DeleteRecursively(string path)
         {
             if (Directory.Exists(path))
-                Directory.Delete(path, true);
+            {
+                try {
+                    Directory.Delete(path, true);
+                } catch { 
+                    // Se estiver em uso, tenta apagar item por item (evitará crash em chain)
+                    foreach(var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories)) {
+                        try { File.Delete(file); } catch { }
+                    }
+                    try { Directory.Delete(path, true); } catch { }
+                }
+            }
             else if (File.Exists(path))
-                File.Delete(path);
+            {
+                try { File.Delete(path); } catch { }
+            }
         }
     }
 }
