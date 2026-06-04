@@ -6,9 +6,10 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::raw::{c_char, c_double, c_int};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
+use tokio::sync::broadcast;
 
 // ==========================================
 // 1. DEFINIÇÃO DA INTERFACE COM O C# (ABI)
@@ -25,14 +26,15 @@ pub type AuthCallback = extern "C" fn(
 
 pub type EventCallback = extern "C" fn(event_code: c_int, context_data: *const c_char);
 
-static mut AUTH_CB: Option<AuthCallback> = None;
-static mut EVENT_CB: Option<EventCallback> = None;
+static AUTH_CB: RwLock<Option<AuthCallback>> = RwLock::new(None);
+static EVENT_CB: RwLock<Option<EventCallback>> = RwLock::new(None);
+static SHUTDOWN_TX: RwLock<Option<broadcast::Sender<()>>> = RwLock::new(None); // Canal de sinal de parada
 
 fn send_event(code: c_int, msg: &str) {
-    unsafe {
-        if let Some(cb) = EVENT_CB {
-            if let Ok(c_msg) = CString::new(msg) {
-                cb(code, c_msg.as_ptr());
+    if let Ok(guard) = EVENT_CB.read() {
+        if let Some(cb) = *guard {
+            if let Ok(c_msg) = CString::new(msg.replace('\0', "")) {
+                unsafe { cb(code, c_msg.as_ptr()); }
             }
         }
     }
@@ -105,7 +107,6 @@ impl<'a> SftpReader<'a> {
     }
 }
 
-// Funções para responder comandos padrão
 fn send_status(channel: ChannelId, session: &mut Session, id: u32, code: u32, msg: &str) {
     let mut w = SftpWriter::new();
     w.write_u8(101); // SSH_FXP_STATUS
@@ -153,14 +154,45 @@ impl SftpServer {
         }
     }
 
-    // JailedFS: Impede Path Traversal (ex: ../../etc/passwd)
     fn build_safe_path(&self, requested: &str) -> Option<std::path::PathBuf> {
-        if requested.contains("..") { return None; }
-        let clean_req = requested.trim_start_matches('/');
         let mut path = std::path::PathBuf::from(&self.root_path);
-        if !clean_req.is_empty() {
-            path.push(clean_req);
+
+        for component in std::path::Path::new(requested).components() {
+            match component {
+                std::path::Component::Normal(name) => {
+                    path.push(name);
+                }
+                std::path::Component::ParentDir => {
+                    if path != std::path::Path::new(&self.root_path) {
+                        path.pop();
+                    } else {
+                        return None; 
+                    }
+                }
+                _ => continue,
+            }
         }
+
+        if path.exists() {
+            if let (Ok(canonical), Ok(root_canonical)) = (path.canonicalize(), std::path::Path::new(&self.root_path).canonicalize()) {
+                if !canonical.starts_with(&root_canonical) {
+                    return None; 
+                }
+            } else {
+                return None;
+            }
+        } else if let Some(parent) = path.parent() {
+            if parent.exists() {
+                if let (Ok(canonical), Ok(root_canonical)) = (parent.canonicalize(), std::path::Path::new(&self.root_path).canonicalize()) {
+                    if !canonical.starts_with(&root_canonical) {
+                        return None; 
+                    }
+                } else {
+                    return None;
+                }
+            }
+        }
+
         Some(path)
     }
 
@@ -168,21 +200,24 @@ impl SftpServer {
         let parts: Vec<&str> = user.splitn(2, '_').collect();
         if parts.len() < 2 { return false; }
 
-        let c_user = CString::new(parts[0]).unwrap();
-        let c_pass = CString::new(pass).unwrap();
-        let c_server = CString::new(parts[1]).unwrap();
+        let c_user = CString::new(parts[0]).unwrap_or_default();
+        let c_pass = CString::new(pass).unwrap_or_default();
+        let c_server = CString::new(parts[1]).unwrap_or_default();
 
         let mut quota: c_double = 0.0;
         let mut path_buf = vec![0u8; 1024];
 
-        unsafe {
-            if let Some(cb) = AUTH_CB {
+        let cb_opt = AUTH_CB.read().ok().and_then(|guard| *guard);
+
+        if let Some(cb) = cb_opt {
+            unsafe {
                 let result = cb(
                     c_user.as_ptr(), c_pass.as_ptr(), c_server.as_ptr(),
                     &mut quota, path_buf.as_mut_ptr() as *mut c_char, 1024,
                 );
 
                 if result == 1 {
+                    path_buf[1023] = 0; 
                     let c_str = CStr::from_ptr(path_buf.as_ptr() as *const c_char);
                     self.root_path = c_str.to_string_lossy().into_owned();
                     send_event(100, &format!("Acesso concedido para: {}", user));
@@ -193,15 +228,14 @@ impl SftpServer {
         false
     }
 
-    // Interpretador nativo do protocolo SFTP v3
     fn handle_sftp_packet(&mut self, channel: ChannelId, packet: &[u8], session: &mut Session) -> Result<(), anyhow::Error> {
         if packet.is_empty() { return Ok(()); }
         let pkt_type = packet[0];
 
-        if pkt_type == 1 { // SSH_FXP_INIT
+        if pkt_type == 1 { 
             let mut w = SftpWriter::new();
-            w.write_u8(2); // SSH_FXP_VERSION
-            w.write_u32(3); // Version 3
+            w.write_u8(2); 
+            w.write_u32(3); 
             let mut cv = CryptoVec::new();
             cv.extend(&w.finish());
             let _ = session.data(channel, cv);
@@ -256,7 +290,7 @@ impl SftpServer {
 
                 if let Some(file) = self.open_files.get_mut(&handle) {
                     if file.seek(SeekFrom::Start(offset)).is_ok() {
-                        let read_len = std::cmp::min(len, 64 * 1024); // Evita limite de memória
+                        let read_len = std::cmp::min(len, 64 * 1024); 
                         let mut buf = vec![0u8; read_len];
                         match file.read(&mut buf) {
                             Ok(0) => send_status(channel, session, request_id, 1, "EOF"),
@@ -450,7 +484,6 @@ impl Handler for SftpServer {
         Ok(true)
     }
 
-    // Corrigido e adaptado para a versão do russh atual
     async fn subsystem_request(&mut self, channel: ChannelId, name: &str, session: &mut Session) -> Result<(), Self::Error> {
         if name == "sftp" {
             send_event(101, &format!("IP {} - SFTP Iniciado!", self.client_ip));
@@ -461,12 +494,17 @@ impl Handler for SftpServer {
         Ok(())
     }
 
-    // A Mágica de Captura de Dados: Onde roteamos as mensagens para o SFTP Engine
     async fn data(&mut self, channel: ChannelId, data: &[u8], session: &mut Session) -> Result<(), Self::Error> {
         self.sftp_buffer.extend_from_slice(data);
 
         while self.sftp_buffer.len() >= 4 {
             let len = u32::from_be_bytes(self.sftp_buffer[0..4].try_into().unwrap()) as usize;
+            
+            if len > 256 * 1024 {
+                send_event(4, "Desconectando: Pacote SFTP excedeu tamanho limite permitido de 256KB");
+                return Err(anyhow::anyhow!("Packet too large: limit exceeded"));
+            }
+
             if self.sftp_buffer.len() < 4 + len {
                 break;
             }
@@ -487,16 +525,29 @@ impl Handler for SftpServer {
 // 4. ENTRYPOINT (CHAMADO PELO C#)
 // ==========================================
 
-#[unsafe(no_mangle)] // Atualizado para nova regra do Rust em relação ao lint
+#[unsafe(no_mangle)]
+pub extern "C" fn StopPlumeSFTP() {
+    if let Ok(guard) = SHUTDOWN_TX.read() {
+        if let Some(tx) = &*guard {
+            let _ = tx.send(()); // Despacha ordem de parada pro motor Tokio
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn StartPlumeSFTP(
     port: c_int,
     key_path: *const c_char,
     auth_cb: Option<AuthCallback>,
     event_cb: Option<EventCallback>,
 ) -> c_int {
-    unsafe {
-        AUTH_CB = auth_cb;
-        EVENT_CB = event_cb;
+    
+    if let Ok(mut w) = AUTH_CB.write() { *w = auth_cb; }
+    if let Ok(mut w) = EVENT_CB.write() { *w = event_cb; }
+
+    let (tx, _) = broadcast::channel(1);
+    if let Ok(mut w) = SHUTDOWN_TX.write() { 
+        *w = Some(tx.clone()); 
     }
 
     let key_path_str = if key_path.is_null() {
@@ -515,16 +566,26 @@ pub extern "C" fn StartPlumeSFTP(
         }
     };
 
+    // FIX: select! macro para dropar a execução caso o sinal StopPlumeSFTP seja emitido pelo C#
     rt.block_on(async move {
-        if let Err(e) = run_ssh_server(port, &key_path_str).await {
-            send_event(21, &format!("Erro catastrófico no SSH: {}", e));
+        let mut rx = tx.subscribe();
+        
+        tokio::select! {
+            res = run_ssh_server(port, &key_path_str) => {
+                if let Err(e) = res {
+                    send_event(21, &format!("Erro catastrófico no SSH: {}", e));
+                }
+            }
+            _ = rx.recv() => {
+                send_event(10, "Sinal de desligamento recebido do C#. Encerrando Tokio...");
+            }
         }
     });
 
     0
 }
 
-async fn run_ssh_server(port: c_int, _key_path: &str) -> anyhow::Result<()> {
+async fn run_ssh_server(port: c_int, key_path: &str) -> anyhow::Result<()> {
     let mut config = russh::server::Config {
         inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
         auth_rejection_time: std::time::Duration::from_secs(3),

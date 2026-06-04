@@ -15,11 +15,12 @@ public static partial class InternalSftpServer
     
     [LibraryImport("*", EntryPoint = "StartPlumeSFTP")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    private static unsafe partial int StartPlumeSFTP(
-        int port,
-        byte* keyPath,
-        void* authCb,
-        void* eventCb);
+    private static unsafe partial int StartPlumeSFTP(int port, byte* keyPath, void* authCb, void* eventCb);
+
+    // FIX: Importando a nova função de desligamento seguro do Rust
+    [LibraryImport("*", EntryPoint = "StopPlumeSFTP")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static partial void StopPlumeSFTP();
 
     private static ILogger _logger = null!; 
 
@@ -40,15 +41,13 @@ public static partial class InternalSftpServer
                 unsafe
                 {
                     delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, double*, IntPtr, int, int> pAuth = &HandleAuthentication;
-                    delegate* unmanaged[Cdecl]<int, IntPtr, void> pEvent = &HandleNativeEvents; // Apontando para o novo gerador de mensagens
+                    delegate* unmanaged[Cdecl]<int, IntPtr, void> pEvent = &HandleNativeEvents; 
                     
                     byte[] keyPathBytes = Encoding.UTF8.GetBytes(keyPath + "\0");
                     fixed (byte* pKeyPath = keyPathBytes)
                     {
-                        // O motor C entra em loop infinito aqui
                         StartPlumeSFTP(port, pKeyPath, (void*)pAuth, (void*)pEvent);
-                        
-                        logger.LogWarning("O servidor nativo foi encerrado inesperadamente.");
+                        logger.LogInformation("O motor nativo do SFTP foi encerrado de forma segura.");
                     }
                 }
             }
@@ -63,11 +62,12 @@ public static partial class InternalSftpServer
         thread.Start();
     }
 
-    // ==========================================
-    // 3. O "CÉREBRO" DE LOGS (CONSTRUTOR DE MENSAGENS)
-    // ==========================================
+    public static void Stop()
+    {
+        try { StopPlumeSFTP(); } catch { }
+    }
 
-// ==========================================
+    // ==========================================
     // 3. O "CÉREBRO" DE LOGS (CONSTRUTOR DE MENSAGENS)
     // ==========================================
 
@@ -79,47 +79,24 @@ public static partial class InternalSftpServer
 
         switch (eventCode)
         {
-            // --- INFORMAÇÕES GERAIS ---
-            case 10: 
-                break; 
-            case 11: 
-                _logger.LogInformation("Servidor SFTP ouvindo em {Port}", ConfigManager.GlobalConfig.Sftp.Port); 
-                break;
-            case 12: 
-                _logger.LogInformation("Cliente SFTP conectado. IP: {IP}", rawData); 
-                break;
+            case 10: break; 
+            case 11: _logger.LogInformation("Servidor SFTP ouvindo em {Port}", ConfigManager.GlobalConfig.Sftp.Port); break;
+            case 12: _logger.LogInformation("Cliente SFTP conectado. IP: {IP}", rawData); break;
+            case 100: _logger.LogInformation("Autenticação bem-sucedida para o usuário: {Usuario}", rawData); break;
+            case 101: _logger.LogInformation("O subsistema SFTP foi ativado para o IP: {IP}", rawData); break;
+            case 2: _logger.LogWarning("Tentativa de login falhou. Alvo: {Dados}", rawData); break;
+            case 4: _logger.LogWarning("Comando inválido ou falha de I/O: {Erro}", rawData); break;
 
-            // --- AUTENTICAÇÃO E SESSÃO ---
-            case 100: 
-                _logger.LogInformation("Autenticação bem-sucedida para o usuário: {Usuario}", rawData); 
-                break;
-            case 101: 
-                _logger.LogInformation("O subsistema SFTP foi ativado para o IP: {IP}", rawData); 
-                break;
-
-            // --- AVISOS (WARNINGS) ---
-            case 2: 
-                _logger.LogWarning("Tentativa de login falhou. Alvo: {Dados}", rawData); 
-                break;
-            case 4:
-                _logger.LogWarning("O cliente enviou um comando inválido ou houve falha de I/O: {Erro}", rawData); 
-                break;
-
-            // --- ERROS FATAIS (DISPARANDO EXCEPTION) ---
             case 20: 
             case 21: 
             case 22: 
             case 23:
-                string criticalMsg = $"Falha catastrófica no motor nativo do SFTP. Código: {eventCode}. Detalhe: {rawData}";
-                _logger.LogCritical(criticalMsg);
-                
-                // Disparar uma exception aqui dentro de um método UnmanagedCallersOnly
-                // fará com que o .NET crashe o processo inteiro imediatamente (FailFast).
-                throw new InvalidOperationException(criticalMsg);
+                // FIX: Removido o 'throw'. Exceções dentro do P/Invoke geram FailFast corrompendo as finalizações
+                _logger.LogCritical("Falha catastrófica no motor nativo do SFTP. Código: {Code}. Detalhe: {Data}", eventCode, rawData);
+                break;
 
-            // --- NÃO MAPEADOS ---
             default: 
-                _logger.LogDebug("Código de evento desconhecido ({Code}) enviado pelo C: {Data}", eventCode, rawData); 
+                _logger.LogDebug("Código desconhecido ({Code}) do C: {Data}", eventCode, rawData); 
                 break;
         }
     }
@@ -152,11 +129,28 @@ public static partial class InternalSftpServer
         if (isValid)
         {
             *quota = quotaDouble;
-            string serverFullPath = Path.Combine(ConfigManager.GlobalConfig.App.Path, "servers", server.Id); 
+
+            // FIX: Bloco de segurança rigorosa anti Path Traversal
+            string serversDir = Path.GetFullPath(Path.Combine(ConfigManager.GlobalConfig.App.Path, "servers"));
+            string serverFullPath = Path.GetFullPath(Path.Combine(serversDir, server.Id));
+
+            if (!serverFullPath.StartsWith(serversDir + Path.DirectorySeparatorChar))
+            {
+                _logger.LogWarning("Tentativa de Path Traversal bloqueada no P/Invoke para ServerID: {Id}", server.Id);
+                return 0;
+            }
+
             byte[] pathBytes = Encoding.UTF8.GetBytes(serverFullPath);
-            int copyLength = Math.Min(pathBytes.Length, maxPathLen - 1);
-            Marshal.Copy(pathBytes, 0, outPathBuf, copyLength);
-            Marshal.WriteByte(outPathBuf, copyLength, 0);
+
+            // FIX: Segurança anti-truncamento e possível buffer-over read (Fuga de Jail)
+            if (pathBytes.Length >= maxPathLen)
+            {
+                _logger.LogError("Buffer nativo muito pequeno para alocar o caminho do servidor {Id}", server.Id);
+                return 0;
+            }
+
+            Marshal.Copy(pathBytes, 0, outPathBuf, pathBytes.Length);
+            Marshal.WriteByte(outPathBuf, pathBytes.Length, 0); // Byte nulo obrigatório
             return 1;
         }
         return 0; 

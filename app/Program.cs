@@ -12,7 +12,6 @@ namespace app
     {
         public static void Main(string[] args)
         {
-            // Instalando o manipulador de crashes global
             CrashHandler.Install();
 
             const string RESET = "\x1b[0m";
@@ -28,8 +27,6 @@ namespace app
 Copyright © 2026 - MurilloFz
 
 Este software é disponibilizado sob os termos da Licença MIT.
-A notificação de direitos autorais acima, bem como este aviso de permissão, devem ser
-incluídos em todas as cópias ou partes substanciais deste software.
     {RESET}";
 
             Console.WriteLine(art);
@@ -38,21 +35,24 @@ incluídos em todas as cópias ou partes substanciais deste software.
             {
                 using var shutdownCts = new CancellationTokenSource();
 
+                // FIX: O Ctrl+C agora envia o sinal correto para derrubar o SFTP também
                 Console.CancelKeyPress += (_, e) =>
                 {
                     e.Cancel = true;
                     shutdownCts.Cancel();
+                    InternalSftpServer.Stop();
                 };
 
-                AppDomain.CurrentDomain.ProcessExit += (_, _) => shutdownCts.Cancel();
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => 
+                {
+                    shutdownCts.Cancel();
+                    InternalSftpServer.Stop();
+                };
 
-                // Agora o LoggerFactory usa a NOSSA classe (PlumeLogger) em vez do padrão feio do C#
                 using var loggerFactory = LoggerFactory.Create(builder =>
                 {
                     _ = builder.AddPlumeLogger();
                     _ = builder.SetMinimumLevel(LogLevel.Information);
-
-                    // Oculta o spam de logs de requisição HTTP (GET, POST) nativos do ASP.NET Core
                     _ = builder.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
                     _ = builder.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
                 });
@@ -60,26 +60,21 @@ incluídos em todas as cópias ou partes substanciais deste software.
                 var defaultLogger = loggerFactory.CreateLogger("Program");
                 var httpLogger = loggerFactory.CreateLogger<HttpServer>();
 
-                // Carrega a configuração (ConfigManager foi ajustado para receber ILogger)
                 ConfigManager.LoadConfig(defaultLogger);
 
-                // Inicializa o banco de dados via JSON
                 var dbPath = Path.Combine(ConfigManager.GlobalConfig.App.Path, "db.json");
                 DatabaseManager.InitDB(dbPath);
 
-                // Chama a inicialização do Manager e aguarda a execução síncrona
                 Manager.InitAsync().GetAwaiter().GetResult();
                 var sftpLogger = loggerFactory.CreateLogger("Plume.SFTP");
-                // Substitua/descomente quando migrar o SFTP Server para C#
+                
                 InternalSftpServer.Start(sftpLogger);
 
-                // Inicializa e sobe o Kestrel (HttpServer)
                 var http = new HttpServer(httpLogger);
                 http.StartAsync(shutdownCts.Token).GetAwaiter().GetResult();
             }
             catch (Exception e)
             {
-                // Cai direto no CrashHandler agora, fica perfeitamente formatado
                 CrashHandler.HandleException(e, "Main");
             }
         }
