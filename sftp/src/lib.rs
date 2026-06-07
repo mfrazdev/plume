@@ -599,7 +599,19 @@ async fn run_ssh_server(port: c_int, key_path: &str) -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let key = russh_keys::key::KeyPair::generate_ed25519().unwrap();
+    // Modificação: Tentar ler o arquivo de chave enviado pelo C#.
+    // Caso não exista ou dê erro, ele avisa no log e gera uma nova na memória.
+    let key = match russh_keys::load_secret_key(key_path, None) {
+        Ok(k) => {
+            send_event(10, &format!("Chave SSH persistente carregada com sucesso de: {}", key_path));
+            k
+        }
+        Err(e) => {
+            send_event(4, &format!("Aviso: Falha ao carregar chave de '{}' ({}). Gerando chave efêmera.", key_path, e));
+            russh_keys::key::KeyPair::generate_ed25519().unwrap()
+        }
+    };
+
     config.keys.push(key);
 
     let config = Arc::new(config);
