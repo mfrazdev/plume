@@ -26,7 +26,7 @@ public static class VersionManager
     public static string BuildDate => BuildInfo.BuildDate;
     public static string BuildTime => BuildInfo.BuildTime;
 
-    private const string GithubRepo = "mfrazdev/plume"; // Substitua se necessário
+    private const string GithubRepo = "murillo-frazao-cunha/plume"; // Substitua se necessário
 
     public static string GetVersion() => Version;
     public static string GetCommit() => Commit;
