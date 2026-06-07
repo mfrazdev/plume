@@ -140,6 +140,12 @@ public static partial class InternalSftpServer
                 return 0;
             }
 
+            // FIX: GERA A PASTA CASO ELA AINDA NÃO EXISTA - RESOLVE O ERRO DE DIRETÓRIO INEXISTENTE (ACESSO NEGADO)
+            if (!Directory.Exists(serverFullPath))
+            {
+                try { Directory.CreateDirectory(serverFullPath); } catch { }
+            }
+
             byte[] pathBytes = Encoding.UTF8.GetBytes(serverFullPath);
 
             // FIX: Segurança anti-truncamento e possível buffer-over read (Fuga de Jail)

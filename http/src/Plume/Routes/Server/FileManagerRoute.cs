@@ -24,7 +24,7 @@ namespace Plume.Http.Routes.Server
             int UserUuid = 0,
             string ServerId = "",
             double Disk = 0.0,
-            string Path = "",
+            string Path = "/", // Default alterado para "/"
             string NewName = "",
             string Content = "",
             string Action = "",
@@ -91,6 +91,12 @@ namespace Plume.Http.Routes.Server
 
             if (body == null)
                 return Reply.Json(new { error = "Invalid JSON or missing body" }, statusCode: 400);
+
+            // Garante que se o path vier vazio, seja considerado "/"
+            if (string.IsNullOrWhiteSpace(body.Path))
+            {
+                body = body with { Path = "/" };
+            }
 
             // Validações rigorosas
             if (!ConfigManager.ValidateUUID(body.UserUuid.ToString()))
@@ -291,7 +297,9 @@ namespace Plume.Http.Routes.Server
             {
                 string userUuid = context.Request.Query["userUuid"].ToString();
                 string serverId = context.Request.Query["serverId"].ToString();
+                
                 string targetPath = context.Request.Query["path"].ToString();
+                if (string.IsNullOrWhiteSpace(targetPath)) targetPath = "/";
 
                 if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
                 if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
@@ -325,7 +333,10 @@ namespace Plume.Http.Routes.Server
                 
                 string userUuid = form["userUuid"].ToString();
                 string serverId = form["serverId"].ToString();
+                
                 string targetPath = form["path"].ToString();
+                if (string.IsNullOrWhiteSpace(targetPath)) targetPath = "/";
+                
                 _ = double.TryParse(form["disk"].ToString(), out double diskFloat);
 
                 if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);

@@ -220,6 +220,12 @@ impl SftpServer {
                     path_buf[1023] = 0; 
                     let c_str = CStr::from_ptr(path_buf.as_ptr() as *const c_char);
                     self.root_path = c_str.to_string_lossy().into_owned();
+                    
+                    // FIX: Garantir que a pasta raiz exista, senão o canonicalize() falha gerando "Acesso Negado"
+                    if !std::path::Path::new(&self.root_path).exists() {
+                        let _ = std::fs::create_dir_all(&self.root_path);
+                    }
+
                     send_event(100, &format!("Acesso concedido para: {}", user));
                     return true;
                 }
