@@ -237,7 +237,7 @@ public static class ServerUtils {
   public static void EnsureWritable(this Server server, string dir) {
     if (!Directory.Exists(dir)) return;
     try {
-      // 1. Altera o proprietário e o grupo para 65534:65534 de forma recursiva (-R)
+      // 1. Define o dono e o grupo do diretório para 65534:65534
       var chown = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
         FileName = "chown",
         Arguments = $"-R 65534:65534 \"{dir}\"",
@@ -247,16 +247,26 @@ public static class ServerUtils {
       });
       chown?.WaitForExit();
 
-      // 2. Garante permissão de leitura e escrita (rw-) para o dono e grupo, e leitura para outros (664)
-      // Se precisar de execução para diretórios, o 'X' maiúsculo resolve sem quebrar os arquivos.
+      // 2. O "pulo do gato": o 's' no 'g+rws' (SetGID)
+      // Isso garante que arquivos NOVOS herdem o grupo 65534 do diretório pai
       var chmod = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
         FileName = "chmod",
-        Arguments = $"-R u+rw,g+rw,o+r \"{dir}\"",
+        Arguments = $"-R u+rwX,g+rwX,o+rX \"{dir}\"", // Aplica r/w normais
         RedirectStandardOutput = true,
         UseShellExecute = false,
         CreateNoWindow = true
       });
       chmod?.WaitForExit();
+
+      // 3. Aplica o SGID (s) especificamente nos diretórios para a herança automática funcionar
+      var chmodSgid = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+        FileName = "chmod",
+        Arguments = $"g+s \"{dir}\"", 
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+      });
+      chmodSgid?.WaitForExit();
 
     } catch {
       /* Ignorando acessos inválidos ou falhas de comando */
