@@ -237,15 +237,30 @@ public static class ServerUtils {
   public static void EnsureWritable(this Server server, string dir) {
     if (!Directory.Exists(dir)) return;
     try {
-      var di = new DirectoryInfo(dir);
-      foreach(var file in di.GetFiles("*", SearchOption.AllDirectories)) {
-        try {
-          file.IsReadOnly = false;
-        } catch {
-          /* Ignorando falhas de permissão de arquivos individuais */ }
-      }
+      // 1. Altera o proprietário e o grupo para 65534:65534 de forma recursiva (-R)
+      var chown = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+        FileName = "chown",
+        Arguments = $"-R 65534:65534 \"{dir}\"",
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+      });
+      chown?.WaitForExit();
+
+      // 2. Garante permissão de leitura e escrita (rw-) para o dono e grupo, e leitura para outros (664)
+      // Se precisar de execução para diretórios, o 'X' maiúsculo resolve sem quebrar os arquivos.
+      var chmod = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+        FileName = "chmod",
+        Arguments = $"-R u+rw,g+rw,o+r \"{dir}\"",
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+      });
+      chmod?.WaitForExit();
+
     } catch {
-      /* Ignorando acessos inválidos */ }
+      /* Ignorando acessos inválidos ou falhas de comando */
+    }
   }
 
   public static async Task FixPermsAsync(this Server server, string hostDir) {
