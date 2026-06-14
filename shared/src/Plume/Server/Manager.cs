@@ -122,7 +122,7 @@ public static class Manager {
         id: id,
         needsInstall: true,
         docker: Docker, // OTIMIZAÇÃO: Mesma instância global
-        basePath: Path.Combine(ConfigManager.GlobalConfig.App.Path, "servers")
+        basePath: ConfigManager.GlobalConfig.App.Path
       );
 
       Servers[id] = server;
