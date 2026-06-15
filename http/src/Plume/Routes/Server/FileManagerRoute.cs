@@ -173,7 +173,7 @@ namespace Plume.Http.Routes.Server
                             long sizeDiff = newFileSize - oldSize;
 
                             if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                                return Reply.Json(new { error = "Cota de disco excedida!" }, statusCode: 400);
+                                return Reply.Json(new { error = "Cota de disco excedida!", max = quotaBytes, currentSize }, statusCode: 400);
                         }
 
                         Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
