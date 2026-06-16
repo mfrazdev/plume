@@ -84,15 +84,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             distro: linux-amd64
             rid: linux-x64
             final_name: plume-linux-amd64
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             distro: linux-arm64
             rid: linux-arm64
             final_name: plume-linux-arm64
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             distro: alpine-amd64
             rid: linux-musl-x64
             final_name: plume-linux-musl-amd64
