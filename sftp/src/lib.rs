@@ -221,7 +221,6 @@ impl SftpServer {
                     let c_str = CStr::from_ptr(path_buf.as_ptr() as *const c_char);
                     self.root_path = c_str.to_string_lossy().into_owned();
                     
-                    // FIX: Garantir que a pasta raiz exista, senão o canonicalize() falha gerando "Acesso Negado"
                     if !std::path::Path::new(&self.root_path).exists() {
                         let _ = std::fs::create_dir_all(&self.root_path);
                     }
@@ -572,7 +571,6 @@ pub extern "C" fn StartPlumeSFTP(
         }
     };
 
-    // FIX: select! macro para dropar a execução caso o sinal StopPlumeSFTP seja emitido pelo C#
     rt.block_on(async move {
         let mut rx = tx.subscribe();
         
@@ -600,15 +598,41 @@ async fn run_ssh_server(port: c_int, key_path: &str) -> anyhow::Result<()> {
     };
 
     // Modificação: Tentar ler o arquivo de chave enviado pelo C#.
-    // Caso não exista ou dê erro, ele avisa no log e gera uma nova na memória.
+    // Caso não exista ou dê erro, ele usa ssh-keygen para gerar e salvar a chave no disco,
+    // garantindo o mesmo comportamento persistente do Kotlin.
     let key = match russh_keys::load_secret_key(key_path, None) {
         Ok(k) => {
             send_event(10, &format!("Chave SSH persistente carregada com sucesso de: {}", key_path));
             k
         }
         Err(e) => {
-            send_event(4, &format!("Aviso: Falha ao carregar chave de '{}' ({}). Gerando chave efêmera.", key_path, e));
-            russh_keys::key::KeyPair::generate_ed25519().unwrap()
+            send_event(4, &format!("Aviso: Falha ao carregar chave de '{}' ({}). Tentando gerar e salvar uma nova chave...", key_path, e));
+            
+            // Remove arquivos residuais (caso estejam corrompidos) para evitar que o ssh-keygen trave no terminal
+            let _ = std::fs::remove_file(key_path);
+            let pub_key_path = format!("{}.pub", key_path);
+            let _ = std::fs::remove_file(&pub_key_path);
+
+            // Chama o ssh-keygen nativo (Suportado nativamente em Windows 10/11 e Linux)
+            let output = std::process::Command::new("ssh-keygen")
+                .args(&["-t", "ed25519", "-f", key_path, "-q", "-N", ""])
+                .output();
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    send_event(10, &format!("Nova chave SSH gerada e salva com sucesso em: {}", key_path));
+                    // Recarrega a chave recém-gerada
+                    russh_keys::load_secret_key(key_path, None).unwrap_or_else(|err| {
+                        send_event(4, &format!("Falha ao recarregar a chave recém-gerada ({}). Usando chave efêmera.", err));
+                        russh_keys::key::KeyPair::generate_ed25519().unwrap()
+                    })
+                }
+                _ => {
+                    let err_msg = output.map(|o| String::from_utf8_lossy(&o.stderr).into_owned()).unwrap_or_else(|err| err.to_string());
+                    send_event(4, &format!("Aviso: Falha ao salvar chave no disco via ssh-keygen ({}). Usando chave efêmera na memória.", err_msg.trim()));
+                    russh_keys::key::KeyPair::generate_ed25519().unwrap()
+                }
+            }
         }
     };
 

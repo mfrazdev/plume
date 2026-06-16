@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Plume.Configuration;
-using Plume.Http;
+using Plume.Http; // Assumindo que Reply esteja aqui
 
 namespace Plume.Http.Routes.Server
 {
@@ -19,29 +20,33 @@ namespace Plume.Http.Routes.Server
         private const long MAX_UNZIP_TOTAL_SIZE = 3L * 1024 * 1024 * 1024; // 3GB total
         private const int MAX_ZIP_FILES = 100000;
 
-        // DTOs
+        // DTOs Mapeados exatamente como o @Serializable do Kotlin
         public record FileBody(
-            int UserUuid = 0,
-            string ServerId = "",
-            double Disk = 0.0,
-            string Path = "/", // Default alterado para "/"
-            string NewName = "",
-            string Content = "",
-            string Action = "",
-            List<string>? Paths = null,
-            string To = "",
-            string Destination = ""
+            [property: JsonPropertyName("userUuid")] int UserUuid = 0,
+            [property: JsonPropertyName("serverId")] string ServerId = "",
+            [property: JsonPropertyName("disk")] double Disk = 0.0,
+            [property: JsonPropertyName("path")] string Path = "",
+            [property: JsonPropertyName("newName")] string NewName = "",
+            [property: JsonPropertyName("content")] string Content = "",
+            [property: JsonPropertyName("action")] string Action = "",
+            [property: JsonPropertyName("paths")] List<string>? Paths = null,
+            [property: JsonPropertyName("to")] string To = "",
+            [property: JsonPropertyName("destination")] string Destination = ""
         );
 
         public record FileItem(
-            string Name,
-            string Type,
-            long Size,
-            long LastModified,
-            string Path
+            [property: JsonPropertyName("name")] string Name,
+            [property: JsonPropertyName("type")] string Type,
+            [property: JsonPropertyName("size")] long Size,
+            [property: JsonPropertyName("lastModified")] long LastModified,
+            [property: JsonPropertyName("path")] string Path
         );
 
         private static string GlobalBasePath => Path.Combine(ConfigManager.GlobalConfig.App.Path, "servers");
+
+        // Helper para emular call.respondError e call.respondSuccess do Kotlin
+        private static IResult RespondError(string message, int status) => Reply.Json(new { error = message }, status);
+        private static IResult RespondSuccess() => Reply.Json(new { status = "success" });
 
         public static void Register(RouteGroupBuilder group)
         {
@@ -82,43 +87,37 @@ namespace Plume.Http.Routes.Server
                 {
                     body = await context.Request.ReadFromJsonAsync<FileBody>();
                 }
-                catch(Exception ex)
+                catch
                 {
-                    Console.WriteLine(ex.Message);
-                    return Reply.Json(new { error = "Invalid JSON" }, statusCode: 400);
+                    return RespondError("Invalid JSON", 400);
                 }
             }
 
             if (body == null)
-                return Reply.Json(new { error = "Invalid JSON or missing body" }, statusCode: 400);
+                return RespondError("Invalid JSON", 400);
 
-            // Garante que se o path vier vazio, seja considerado "/"
-            if (string.IsNullOrWhiteSpace(body.Path))
-            {
-                body = body with { Path = "/" };
-            }
-
-            // Validações rigorosas
+            // Validações rigorosas baseadas no Kotlin
             if (!ConfigManager.ValidateUUID(body.UserUuid.ToString()))
-                return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
+                return RespondError("Invalid userUuid", 400);
     
             if (!ConfigManager.ValidateServerID(body.ServerId))
-                return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
+                return RespondError("Invalid serverId", 400);
 
             if (!ConfigManager.HasPermission(body.UserUuid.ToString(), body.ServerId))
-                return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
+                return RespondError("Sem permissão", 403);
 
             string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, body.ServerId));
             string relPath = SanitizePath(body.Path);
+            
+            // absPath = if(relPath.isEmpty()) basePath else basePath.resolve(relPath).normalize()
             string absPath = string.IsNullOrEmpty(relPath) ? basePath : Path.GetFullPath(Path.Combine(basePath, relPath));
 
             // Segurança contra Path Traversal
             if (!absPath.StartsWith(basePath))
-                return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
+                return RespondError("Acesso negado (Traversal)", 403);
 
             long quotaBytes = (long)(body.Disk * 1024 * 1024);
 
-            // Envolvemos tudo em um try-catch geral para evitar erros 500 brutos por conta de I/O
             try
             {
                 switch (action.ToLower())
@@ -126,41 +125,41 @@ namespace Plume.Http.Routes.Server
                     case "list":
                     {
                         if (!Directory.Exists(absPath))
-                            return Reply.Json(new { error = "Diretório não encontrado" }, statusCode: 404);
+                            return RespondError("Diretório não encontrado", 404);
 
-                        var dirInfo = new DirectoryInfo(absPath);
                         var items = new List<FileItem>();
+                        var dirInfo = new DirectoryInfo(absPath);
 
-                        // Evitar quebra caso uma pasta exija permissões de ADM do Windows/Linux
                         try
                         {
-                            foreach (var dir in dirInfo.GetDirectories())
+                            foreach (var f in dirInfo.GetFileSystemInfos())
                             {
-                                items.Add(new FileItem(dir.Name, "folder", 0, new DateTimeOffset(dir.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, dir.Name)));
-                            }
-                            foreach (var file in dirInfo.GetFiles())
-                            {
-                                items.Add(new FileItem(file.Name, "file", file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds(), CombinePaths(relPath, file.Name)));
+                                bool isDir = (f.Attributes & FileAttributes.Directory) == FileAttributes.Directory;
+                                string type = isDir ? "folder" : "file";
+                                long size = isDir ? 0L : ((FileInfo)f).Length;
+                                long lastModified = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds();
+                                
+                                string itemPath = SanitizePath(string.IsNullOrEmpty(relPath) ? f.Name : $"{relPath}/{f.Name}");
+                                items.Add(new FileItem(f.Name, type, size, lastModified, itemPath));
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            return Reply.Json(new { error = $"Erro ao listar diretório: {ex.Message}" }, statusCode: 500);
-                        }
+                        catch { /* Ignora caso falte permissão em alguma subpasta/arquivo específico */ }
 
-                        return Reply.Json(new { status = "success", items = items, path = "/" + relPath });
+                        // Equivalente ao FileListResponse do Kotlin
+                        return Reply.Json(new { items = items, path = "/" + relPath });
                     }
 
                     case "read":
                     {
                         if (!File.Exists(absPath))
-                            return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                            return RespondError("Arquivo não encontrado", 404);
 
-                        // FileShare.ReadWrite evita crash se um servidor estiver escrevendo no arquivo log
                         using var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                         using var sr = new StreamReader(fs);
                         string content = await sr.ReadToEndAsync();
-                        return Reply.Json(new { status = "success", content = content, path = "/" + relPath });
+                        
+                        // Equivalente ao FileReadResponse do Kotlin
+                        return Reply.Json(new { content = content, path = "/" + relPath });
                     }
 
                     case "write":
@@ -173,85 +172,78 @@ namespace Plume.Http.Routes.Server
                             long sizeDiff = newFileSize - oldSize;
 
                             if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                                return Reply.Json(new { error = "Cota de disco excedida!", max = quotaBytes, currentSize }, statusCode: 400);
+                                return RespondError("Cota de disco excedida!", 400);
                         }
 
                         Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
-                        
-                        using var fs = new FileStream(absPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-                        using var sw = new StreamWriter(fs);
-                        await sw.WriteAsync(body.Content ?? "");
-                        return Reply.Json(new { status = "success" });
+                        await File.WriteAllTextAsync(absPath, body.Content ?? "");
+                        return RespondSuccess();
                     }
 
                     case "rename":
                     {
                         if (string.IsNullOrEmpty(body.NewName) || body.NewName.Contains("/") || body.NewName.Contains("\\"))
-                            return Reply.Json(new { error = "Nome inválido" }, statusCode: 400);
+                            return RespondError("Nome inválido", 400);
 
                         string newAbs = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(absPath)!, body.NewName));
                         
-                        if (File.Exists(newAbs) || Directory.Exists(newAbs))
-                            return Reply.Json(new { error = "Já existe um item com esse nome no destino." }, statusCode: 400);
-
-                        if (File.Exists(absPath)) File.Move(absPath, newAbs);
-                        else if (Directory.Exists(absPath)) Directory.Move(absPath, newAbs);
+                        try 
+                        {
+                            if (File.Exists(absPath)) File.Move(absPath, newAbs, true);
+                            else if (Directory.Exists(absPath)) Directory.Move(absPath, newAbs);
+                        } 
+                        catch { /* Kotlin's renameTo ignora silenciosamente erros do OS */ }
                         
-                        return Reply.Json(new { status = "success" });
+                        return RespondSuccess();
                     }
 
                     case "mkdir":
                     {
                         Directory.CreateDirectory(absPath);
-                        return Reply.Json(new { status = "success" });
+                        return RespondSuccess();
                     }
 
                     case "delete":
                     {
                         DeleteRecursively(absPath);
-                        return Reply.Json(new { status = "success" });
+                        return RespondSuccess();
                     }
 
                     case "download":
                     {
                         if (File.Exists(absPath))
                         {
-                            // Envia via stream para não dar lock crash
                             var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                             return Results.File(fs, fileDownloadName: Path.GetFileName(absPath));
                         }
-                        return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                        return RespondError("Arquivo não encontrado", 404);
                     }
 
                     case "move":
                     {
                         string destRel = SanitizePath(body.To);
-                        // Solução definitiva pro move: DirectoryInfo captura o nome corretamente (seja pasta ou arquivo)
                         string itemName = new DirectoryInfo(absPath).Name; 
                         string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel, itemName));
 
                         if (!destAbs.StartsWith(basePath))
-                            return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
-
-                        if (File.Exists(destAbs) || Directory.Exists(destAbs))
-                            return Reply.Json(new { error = "Já existe um item com esse nome no destino." }, statusCode: 400);
+                            return RespondError("Destino inválido", 403);
 
                         Directory.CreateDirectory(Path.GetDirectoryName(destAbs)!);
                         
-                        if (File.Exists(absPath)) 
-                            File.Move(absPath, destAbs);
-                        else if (Directory.Exists(absPath)) 
-                            Directory.Move(absPath, destAbs);
-                        else 
-                            return Reply.Json(new { error = "Origem não encontrada" }, statusCode: 404);
+                        try 
+                        {
+                            if (File.Exists(absPath)) File.Move(absPath, destAbs, true);
+                            else if (Directory.Exists(absPath)) Directory.Move(absPath, destAbs);
+                        } 
+                        catch { /* Semelhante ao fail silencioso do kotlin renameTo */ }
                         
-                        return Reply.Json(new { status = "success" });
+                        return RespondSuccess();
                     }
 
                     case "unarchive":
                     {
                         if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                            return Reply.Json(new { error = "Cota de disco excedida, limpe espaço antes de extrair." }, statusCode: 400);
+                            return RespondError("Cota de disco excedida, limpe espaço antes de extrair.", 400);
                             
                         return await HandleUnarchive(body, absPath, basePath);
                     }
@@ -263,31 +255,31 @@ namespace Plume.Http.Routes.Server
                         if (body.Action.Equals("delete", StringComparison.OrdinalIgnoreCase))
                         {
                             foreach (var p in pathsToProcess)
-                        {
+                            {
                                 string target = Path.GetFullPath(Path.Combine(basePath, SanitizePath(p)));
                                 if (target.StartsWith(basePath))
                                     DeleteRecursively(target);
                             }
-                            return Reply.Json(new { status = "success" });
+                            return RespondSuccess();
                         }
                         else if (body.Action.Equals("archive", StringComparison.OrdinalIgnoreCase))
                         {
                             if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
-                                return Reply.Json(new { error = "Cota de disco cheia, impossível criar arquivo." }, statusCode: 400);
+                                return RespondError("Cota de disco cheia, impossível criar arquivo.", 400);
                                 
-                            // absPath aqui será o diretório atual do usuário, garantindo que o ZIP seja salvo onde ele está!
-                            return await HandleMassArchive(pathsToProcess, basePath, absPath);
+                            // No Kotlin o basePath era usado diretamente pra armazenar e calcular parent relativos
+                            return await HandleMassArchive(pathsToProcess, basePath);
                         }
-                        return Reply.Json(new { error = "Ação de mass desconhecida" }, statusCode: 400);
+                        return RespondError("Ação de mass desconhecida", 400);
                     }
 
                     default:
-                        return Reply.Json(new { error = "Ação desconhecida" }, statusCode: 400);
+                        return RespondError("Ação desconhecida", 400);
                 }
             }
             catch (Exception ex)
             {
-                return Reply.Json(new { error = $"Erro ao executar ação: {ex.Message}" }, statusCode: 500);
+                return RespondError($"Erro ao executar ação: {ex.Message}", 500);
             }
         }
 
@@ -297,35 +289,33 @@ namespace Plume.Http.Routes.Server
             {
                 string userUuid = context.Request.Query["userUuid"].ToString();
                 string serverId = context.Request.Query["serverId"].ToString();
-                
                 string targetPath = context.Request.Query["path"].ToString();
-                if (string.IsNullOrWhiteSpace(targetPath)) targetPath = "/";
 
-                if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-                if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
-                if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
+                if (!ConfigManager.ValidateUUID(userUuid)) return RespondError("Invalid userUuid", 400);
+                if (!ConfigManager.ValidateServerID(serverId)) return RespondError("Invalid serverId", 400);
+                if (!ConfigManager.HasPermission(userUuid, serverId)) return RespondError("Sem permissão", 403);
 
                 string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
                 string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
 
-                if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado (Traversal)" }, statusCode: 403);
+                if (!absPath.StartsWith(basePath)) return RespondError("Acesso negado (Traversal)", 403);
 
                 if (!File.Exists(absPath))
-                    return Reply.Json(new { error = "Arquivo não encontrado" }, statusCode: 404);
+                    return RespondError("Arquivo não encontrado", 404);
 
                 var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 return Results.File(fs, fileDownloadName: Path.GetFileName(absPath));
             }
             catch (Exception ex)
             {
-                return Reply.Json(new { error = $"Erro ao processar download: {ex.Message}" }, statusCode: 500);
+                return RespondError($"Erro ao processar download: {ex.Message}", 500);
             }
         }
 
         private static async Task<IResult> HandleUpload(HttpContext context)
         {
             if (!context.Request.HasFormContentType)
-                return Reply.Json(new { error = "Esperado form-data" }, statusCode: 400);
+                return RespondError("Esperado form-data", 400);
 
             try
             {
@@ -333,24 +323,21 @@ namespace Plume.Http.Routes.Server
                 
                 string userUuid = form["userUuid"].ToString();
                 string serverId = form["serverId"].ToString();
-                
                 string targetPath = form["path"].ToString();
-                if (string.IsNullOrWhiteSpace(targetPath)) targetPath = "/";
-                
                 _ = double.TryParse(form["disk"].ToString(), out double diskFloat);
 
-                if (!ConfigManager.ValidateUUID(userUuid)) return Reply.Json(new { error = "Invalid userUuid" }, statusCode: 400);
-                if (!ConfigManager.ValidateServerID(serverId)) return Reply.Json(new { error = "Invalid serverId" }, statusCode: 400);
-                if (!ConfigManager.HasPermission(userUuid, serverId)) return Reply.Json(new { error = "Sem permissão" }, statusCode: 403);
+                if (!ConfigManager.ValidateUUID(userUuid)) return RespondError("Invalid userUuid", 400);
+                if (!ConfigManager.ValidateServerID(serverId)) return RespondError("Invalid serverId", 400);
+                if (!ConfigManager.HasPermission(userUuid, serverId)) return RespondError("Sem permissão", 403);
 
                 var file = form.Files.FirstOrDefault();
                 if (file == null || file.Length == 0)
-                    return Reply.Json(new { error = "Arquivo não enviado" }, statusCode: 400);
+                    return RespondError("Arquivo não enviado", 400);
 
                 string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, serverId));
                 string absPath = Path.GetFullPath(Path.Combine(basePath, SanitizePath(targetPath)));
 
-                if (!absPath.StartsWith(basePath)) return Reply.Json(new { error = "Acesso negado" }, statusCode: 403);
+                if (!absPath.StartsWith(basePath)) return RespondError("Acesso negado", 403);
 
                 long quotaBytes = (long)(diskFloat * 1024 * 1024);
 
@@ -361,36 +348,38 @@ namespace Plume.Http.Routes.Server
                     long sizeDiff = file.Length - oldSize;
 
                     if (sizeDiff > 0 && currentSize + sizeDiff > quotaBytes)
-                        return Reply.Json(new { error = $"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)" }, statusCode: 400);
+                        return RespondError($"Upload negado: limite de disco excedido (Cota: {diskFloat} MB)", 400);
                 }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
 
+                // No C# CopyToAsync é melhor em performance e memoria do que ler tudo para array de byte igual no Ktor
                 using (var stream = new FileStream(absPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     await file.CopyToAsync(stream);
                 }
 
-                return Reply.Json(new { status = "success" });
+                return RespondSuccess();
             }
             catch (Exception ex)
             {
-                return Reply.Json(new { error = $"Erro no upload: {ex.Message}" }, statusCode: 500);
+                return RespondError($"Erro no upload: {ex.Message}", 500);
             }
         }
 
-        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath, string currentDirAbsPath)
+        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath)
         {
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            string zipName = $"archive-{timestamp}.zip";
-            // Correção: Agora o zip vai ser salvo no currentDirAbsPath (a pasta atual de ondem chamaram a ação)
-            string zipFile = Path.Combine(currentDirAbsPath, zipName); 
+            string zipName = $"{timestamp}.zip";
+            // O Kotlin salvava exatamente no basePath
+            string zipFile = Path.Combine(basePath, zipName); 
 
             try
             {
                 await Task.Run(() =>
                 {
                     using var fs = new FileStream(zipFile, FileMode.Create);
+                    // Equivalente ao Deflater.NO_COMPRESSION do Kotlin (Mágica de Velocidade)
                     using var archive = new ZipArchive(fs, ZipArchiveMode.Create);
 
                     foreach (string p in paths)
@@ -400,33 +389,39 @@ namespace Plume.Http.Routes.Server
 
                         if (File.Exists(targetPath))
                         {
-                            string relPath = Path.GetRelativePath(basePath, targetPath).Replace("\\", "/");
+                            string relPath = SanitizePath(Path.GetRelativePath(basePath, targetPath));
                             AddFileToArchive(archive, targetPath, relPath);
                         }
                         else if (Directory.Exists(targetPath))
                         {
                             var files = Directory.GetFiles(targetPath, "*", SearchOption.AllDirectories);
-                            foreach (var f in files)
+                            if (files.Length == 0)
                             {
-                                string relPath = Path.GetRelativePath(basePath, f).Replace("\\", "/");
-                                AddFileToArchive(archive, f, relPath);
+                                string relPath = SanitizePath(Path.GetRelativePath(basePath, targetPath)) + "/";
+                                archive.CreateEntry(relPath, CompressionLevel.NoCompression);
+                            }
+                            else
+                            {
+                                foreach (var f in files)
+                                {
+                                    string relPath = SanitizePath(Path.GetRelativePath(basePath, f));
+                                    AddFileToArchive(archive, f, relPath);
+                                }
                             }
                         }
                     }
                 });
-                return Reply.Json(new { status = "success" });
+                return RespondSuccess();
             }
             catch (Exception e)
             {
-                // Limpeza em caso de erro na compactação
                 if (File.Exists(zipFile)) File.Delete(zipFile); 
-                return Reply.Json(new { error = $"Falha ao criar arquivo zip: {e.Message}" }, statusCode: 500);
+                return RespondError($"Falha ao criar arquivo zip: {e.Message}", 500);
             }
         }
 
         private static void AddFileToArchive(ZipArchive archive, string filePath, string entryName)
         {
-            // FileShare.ReadWrite fundamental pra não explodir ao clipar arquivos abertos/log servers
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var entry = archive.CreateEntry(entryName, CompressionLevel.NoCompression);
             using var entryStream = entry.Open();
@@ -450,7 +445,7 @@ namespace Plume.Http.Routes.Server
             string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel));
 
             if (!destAbs.StartsWith(basePath))
-                return Reply.Json(new { error = "Destino inválido" }, statusCode: 403);
+                return RespondError("Destino inválido", 403);
                 
             Directory.CreateDirectory(destAbs);
 
@@ -463,16 +458,15 @@ namespace Plume.Http.Routes.Server
                         using var fs = new FileStream(absArchive, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                         using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
                         long totalSize = 0;
-                        
-                        if (archive.Entries.Count > MAX_ZIP_FILES)
-                            throw new Exception("Zip contém muitos arquivos");
+                        int fileCount = 0;
 
                         foreach (var entry in archive.Entries)
                         {
+                            fileCount++;
+                            if (fileCount > MAX_ZIP_FILES) throw new Exception("Zip contém muitos arquivos");
+
                             string newPath = Path.GetFullPath(Path.Combine(destAbs, entry.FullName));
-                            
-                            if (!newPath.StartsWith(destAbs))
-                                throw new Exception("Zip Slip detectado");
+                            if (!newPath.StartsWith(destAbs)) throw new Exception("Zip Slip detectado");
 
                             if (string.IsNullOrEmpty(entry.Name) || entry.FullName.EndsWith("/")) 
                             {
@@ -480,34 +474,38 @@ namespace Plume.Http.Routes.Server
                                 continue;
                             }
 
-                            if (entry.Length > MAX_UNZIP_FILE_SIZE)
-                                throw new Exception("Arquivo extraído muito grande");
+                            if (entry.Length > MAX_UNZIP_FILE_SIZE) throw new Exception("Arquivo extraído muito grande");
                                 
                             totalSize += entry.Length;
-                            if (totalSize > MAX_UNZIP_TOTAL_SIZE)
-                                throw new Exception("Tamanho total descompactado excedeu o limite");
+                            if (totalSize > MAX_UNZIP_TOTAL_SIZE) throw new Exception("Tamanho total descompactado excedeu o limite");
 
                             Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
 
-                            // Extração manual via stream para sobrescrever tranquilamente
                             using var entryStream = entry.Open();
                             using var destStream = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                            entryStream.CopyTo(destStream);
+                            
+                            // Lendo os bytes em chunk (Buffer) igual ao InputStream Kotlin 
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = entryStream.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                destStream.Write(buffer, 0, bytesRead);
+                            }
                         }
                     });
-                    return Reply.Json(new { status = "success" });
+                    return RespondSuccess();
                 }
                 catch (Exception e)
                 {
-                    return Reply.Json(new { error = $"Erro ao descompactar zip: {e.Message}" }, statusCode: 500);
+                    return RespondError($"Erro ao descompactar zip: {e.Message}", 500);
                 }
             }
             else if (absArchive.EndsWith(".tar.gz") || absArchive.EndsWith(".tgz"))
             {
-                return Reply.Json(new { error = "Descompactação de tar.gz requer lib adicional no backend C# (Ex: SharpZipLib)." }, statusCode: 501);
+                return RespondError("Descompactação de tar.gz requer lib adicional no backend C# (Ex: SharpZipLib).", 501);
             }
 
-            return Reply.Json(new { error = "Formato não suportado para descompactação" }, statusCode: 400);
+            return RespondError("Formato não suportado para descompactação", 400);
         }
 
         // --- Utils / Helpers ---
@@ -519,15 +517,9 @@ namespace Plume.Http.Routes.Server
             return string.Join("/", segments);
         }
 
-        private static string CombinePaths(string relPath, string name)
-        {
-            return string.IsNullOrEmpty(relPath) ? name : $"{relPath}/{name}";
-        }
-
         private static long GetServerDiskUsage(string baseFolder)
         {
             if (!Directory.Exists(baseFolder)) return 0L;
-            // Catch caso não consiga acessar algo interno no calculo da cota
             try {
                 return new DirectoryInfo(baseFolder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
             } catch {
@@ -542,7 +534,6 @@ namespace Plume.Http.Routes.Server
                 try {
                     Directory.Delete(path, true);
                 } catch { 
-                    // Se estiver em uso, tenta apagar item por item (evitará crash em chain)
                     foreach(var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories)) {
                         try { File.Delete(file); } catch { }
                     }

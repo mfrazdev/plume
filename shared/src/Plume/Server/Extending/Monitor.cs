@@ -33,11 +33,22 @@ public static class ServerMonitor {
 
       server.DiskJob = Task.Run(async () => {
         string sp = server.ServerPath();
-        await server.UpdateDiskAsync(sp);
+        
+        // FIX: Evita que a thread crashe na primeira checagem se houver arquivos em uso (lock)
+        try {
+          await server.UpdateDiskAsync(sp);
+        } catch { /* Ignorado na primeira passagem para evitar fim prematuro da Task */ }
 
         while (server.Monitoring) {
           await Task.Delay(5000);
-          await server.UpdateDiskAsync(sp);
+          if (!server.Monitoring) break;
+          
+          // FIX: Evita que o Background Job morra permanentemente caso o diretório fique inacessível temporariamente
+          try {
+            await server.UpdateDiskAsync(sp);
+          } catch {
+            // Ignorado, tentará novamente em 5 segundos
+          }
         }
       });
     }

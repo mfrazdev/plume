@@ -129,6 +129,10 @@ public static class Manager {
       if (id.Length >= 8) {
         ShortIdCache[id.Substring(0, 8)] = server;
       }
+
+      // ==== FIX: O monitor não estava sendo iniciado para servidores recém criados! ====
+      server.StartUsageMonitor();
+
     } catch (Exception e) {
       // TODO: Chamar o Logger padrão do C# que você está utilizando.
       Console.WriteLine($"Failed to save server {id} to database: {e.Message}");
