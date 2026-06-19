@@ -613,7 +613,7 @@ public static class ServerLifecycle {
 
         var envList = ServerUtils.EnvToList(data.Environment);
         envList.Add($"PLUME_BASE_IMAGE={originalBaseImage}");
-
+        envList.Add("HOME=/home/container");
         var finalCmd = !string.IsNullOrWhiteSpace(data.Core.DockerEntrypoint) ?
           data.Core.DockerEntrypoint.Trim().Split(new [] {
             ' ',
