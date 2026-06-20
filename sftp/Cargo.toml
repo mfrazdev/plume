@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] } # O motor assíncrono (equivalente às Goroutines, mas sem lixo na memória)

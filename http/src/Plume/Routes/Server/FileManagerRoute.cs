@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Plume.Configuration;
 using Plume.Http; // Assumindo que Reply esteja aqui
@@ -20,12 +21,13 @@ namespace Plume.Http.Routes.Server
         private const long MAX_UNZIP_TOTAL_SIZE = 3L * 1024 * 1024 * 1024; // 3GB total
         private const int MAX_ZIP_FILES = 100000;
 
-        // DTOs Mapeados exatamente como o @Serializable do Kotlin
+        // Adicionado o FROM para corrigir o bug do Mover!
         public record FileBody(
             [property: JsonPropertyName("userUuid")] int UserUuid = 0,
             [property: JsonPropertyName("serverId")] string ServerId = "",
             [property: JsonPropertyName("disk")] double Disk = 0.0,
             [property: JsonPropertyName("path")] string Path = "",
+            [property: JsonPropertyName("from")] string From = "", 
             [property: JsonPropertyName("newName")] string NewName = "",
             [property: JsonPropertyName("content")] string Content = "",
             [property: JsonPropertyName("action")] string Action = "",
@@ -109,7 +111,6 @@ namespace Plume.Http.Routes.Server
             string basePath = Path.GetFullPath(Path.Combine(GlobalBasePath, body.ServerId));
             string relPath = SanitizePath(body.Path);
             
-            // absPath = if(relPath.isEmpty()) basePath else basePath.resolve(relPath).normalize()
             string absPath = string.IsNullOrEmpty(relPath) ? basePath : Path.GetFullPath(Path.Combine(basePath, relPath));
 
             // Segurança contra Path Traversal
@@ -145,7 +146,6 @@ namespace Plume.Http.Routes.Server
                         }
                         catch { /* Ignora caso falte permissão em alguma subpasta/arquivo específico */ }
 
-                        // Equivalente ao FileListResponse do Kotlin
                         return Reply.Json(new { items = items, path = "/" + relPath });
                     }
 
@@ -158,7 +158,6 @@ namespace Plume.Http.Routes.Server
                         using var sr = new StreamReader(fs);
                         string content = await sr.ReadToEndAsync();
                         
-                        // Equivalente ao FileReadResponse do Kotlin
                         return Reply.Json(new { content = content, path = "/" + relPath });
                     }
 
@@ -186,6 +185,9 @@ namespace Plume.Http.Routes.Server
                             return RespondError("Nome inválido", 400);
 
                         string newAbs = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(absPath)!, body.NewName));
+                        
+                        if (File.Exists(newAbs) || Directory.Exists(newAbs))
+                            return RespondError("Já existe um arquivo ou diretório com este nome", 400);
                         
                         try 
                         {
@@ -221,21 +223,35 @@ namespace Plume.Http.Routes.Server
 
                     case "move":
                     {
+                        // Aqui está a correção do Move! O React envia "from" em vez de "path"
+                        string sourceRel = SanitizePath(!string.IsNullOrEmpty(body.From) ? body.From : body.Path);
+                        string sourceAbs = string.IsNullOrEmpty(sourceRel) ? basePath : Path.GetFullPath(Path.Combine(basePath, sourceRel));
+
+                        if (!sourceAbs.StartsWith(basePath) || (!File.Exists(sourceAbs) && !Directory.Exists(sourceAbs)))
+                            return RespondError("Origem inválida ou não encontrada", 400);
+
                         string destRel = SanitizePath(body.To);
-                        string itemName = new DirectoryInfo(absPath).Name; 
+                        string itemName = new DirectoryInfo(sourceAbs).Name; 
+                        
+                        // /pasta_destino/ + arquivo.json = /pasta_destino/arquivo.json
                         string destAbs = Path.GetFullPath(Path.Combine(basePath, destRel, itemName));
 
                         if (!destAbs.StartsWith(basePath))
                             return RespondError("Destino inválido", 403);
 
+                        if (File.Exists(destAbs) || Directory.Exists(destAbs))
+                            return RespondError("Já existe um arquivo ou diretório com este nome no destino", 400);
+
                         Directory.CreateDirectory(Path.GetDirectoryName(destAbs)!);
                         
                         try 
                         {
-                            if (File.Exists(absPath)) File.Move(absPath, destAbs, true);
-                            else if (Directory.Exists(absPath)) Directory.Move(absPath, destAbs);
+                            if (File.Exists(sourceAbs)) File.Move(sourceAbs, destAbs, true);
+                            else if (Directory.Exists(sourceAbs)) Directory.Move(sourceAbs, destAbs);
                         } 
-                        catch { /* Semelhante ao fail silencioso do kotlin renameTo */ }
+                        catch (Exception ex) { 
+                            return RespondError($"Erro ao mover: {ex.Message}", 500);
+                        }
                         
                         return RespondSuccess();
                     }
@@ -266,9 +282,20 @@ namespace Plume.Http.Routes.Server
                         {
                             if (quotaBytes > 0 && GetServerDiskUsage(basePath) >= quotaBytes)
                                 return RespondError("Cota de disco cheia, impossível criar arquivo.", 400);
-                                
-                            // No Kotlin o basePath era usado diretamente pra armazenar e calcular parent relativos
-                            return await HandleMassArchive(pathsToProcess, basePath);
+                            
+                            // Lógica de Archive corrigida para salvar na pasta correta
+                            string firstPath = pathsToProcess.FirstOrDefault() ?? "";
+                            string parentDirRel = "";
+                            int lastSlash = firstPath.Replace("\\", "/").LastIndexOf('/');
+                            if (lastSlash >= 0) {
+                                parentDirRel = firstPath.Substring(0, lastSlash);
+                            }
+                            
+                            string zipDir = Path.GetFullPath(Path.Combine(basePath, SanitizePath(parentDirRel)));
+                            if (!zipDir.StartsWith(basePath)) zipDir = basePath;
+
+                            Directory.CreateDirectory(zipDir);
+                            return await HandleMassArchive(pathsToProcess, basePath, zipDir);
                         }
                         return RespondError("Ação de mass desconhecida", 400);
                     }
@@ -314,6 +341,13 @@ namespace Plume.Http.Routes.Server
 
         private static async Task<IResult> HandleUpload(HttpContext context)
         {
+            // Força o limite de body interno da rota a ser infinito (caso já não tenha cortado pelo Kestrel)
+            var maxBodyFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (maxBodyFeature != null && !maxBodyFeature.IsReadOnly)
+            {
+                maxBodyFeature.MaxRequestBodySize = null;
+            }
+
             if (!context.Request.HasFormContentType)
                 return RespondError("Esperado form-data", 400);
 
@@ -353,10 +387,11 @@ namespace Plume.Http.Routes.Server
 
                 Directory.CreateDirectory(Path.GetDirectoryName(absPath)!);
 
-                // No C# CopyToAsync é melhor em performance e memoria do que ler tudo para array de byte igual no Ktor
+                // OpenReadStream é MUITO mais robusto para arquivos grandes, ajuda no buffer memory leak do C#
+                using (var readStream = file.OpenReadStream())
                 using (var stream = new FileStream(absPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    await file.CopyToAsync(stream);
+                    await readStream.CopyToAsync(stream);
                 }
 
                 return RespondSuccess();
@@ -367,19 +402,17 @@ namespace Plume.Http.Routes.Server
             }
         }
 
-        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath)
+        private static async Task<IResult> HandleMassArchive(List<string> paths, string basePath, string zipDir)
         {
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             string zipName = $"{timestamp}.zip";
-            // O Kotlin salvava exatamente no basePath
-            string zipFile = Path.Combine(basePath, zipName); 
+            string zipFile = Path.Combine(zipDir, zipName); // Agora salva na pasta correta
 
             try
             {
                 await Task.Run(() =>
                 {
                     using var fs = new FileStream(zipFile, FileMode.Create);
-                    // Equivalente ao Deflater.NO_COMPRESSION do Kotlin (Mágica de Velocidade)
                     using var archive = new ZipArchive(fs, ZipArchiveMode.Create);
 
                     foreach (string p in paths)
@@ -484,7 +517,6 @@ namespace Plume.Http.Routes.Server
                             using var entryStream = entry.Open();
                             using var destStream = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None);
                             
-                            // Lendo os bytes em chunk (Buffer) igual ao InputStream Kotlin 
                             byte[] buffer = new byte[8192];
                             int bytesRead;
                             while ((bytesRead = entryStream.Read(buffer, 0, buffer.Length)) > 0)

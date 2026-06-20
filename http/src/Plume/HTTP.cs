@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -57,7 +58,16 @@ namespace Plume.Http;
             builder.Logging.AddPlumeLogger();
             builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
-
+            builder.WebHost.ConfigureKestrel(serverOptions => {
+                serverOptions.Limits.MaxRequestBodySize = null; 
+            });
+            
+            builder.Services.Configure<FormOptions>(options =>
+            {
+                options.ValueLengthLimit = int.MaxValue;
+                options.MultipartBodyLengthLimit = long.MaxValue; // Ilimitado (ou coloque seu máximo em bytes)
+                options.MemoryBufferThreshold = int.MaxValue;
+            });
             builder.WebHost.ConfigureKestrel(options =>
             {
                 if (ConfigManager.GlobalConfig.Ssl.Enabled)

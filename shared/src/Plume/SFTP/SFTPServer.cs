@@ -9,16 +9,23 @@ namespace Plume.SFTP;
 
 public static partial class InternalSftpServer
 {
+    
+#if DEBUG
+    private const string NativeLib = "D:\\panel\\plume-net\\app\\plume_sftp_core.dll";
+#else
+    private const string NativeLib = "*";
+#endif
+    
     // ==========================================
     // 1. DEFINIÇÃO DA INTERFACE NATIVA (NativeAOT)
     // ==========================================
     
-    [LibraryImport("*", EntryPoint = "StartPlumeSFTP")]
+    [LibraryImport(NativeLib, EntryPoint = "StartPlumeSFTP")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static unsafe partial int StartPlumeSFTP(int port, byte* keyPath, void* authCb, void* eventCb);
 
     // FIX: Importando a nova função de desligamento seguro do Rust
-    [LibraryImport("*", EntryPoint = "StopPlumeSFTP")]
+    [LibraryImport(NativeLib, EntryPoint = "StopPlumeSFTP")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static partial void StopPlumeSFTP();
 
