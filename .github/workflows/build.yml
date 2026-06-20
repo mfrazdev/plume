@@ -154,22 +154,23 @@ jobs:
       - name: Extract Raw Executable
         shell: bash
         run: |
-          PUBLISH_DIR="./bin/app/Release/publish"
+          # Busca dinamicamente o executável gerado para evitar qualquer problema de caminho no Linux
+          BIN_PATH=$(find . -type f -name "plume-${{ matrix.rid }}" | head -n 1)
           
-          # Entra no diretório de publicação e remove os arquivos indesejados (.pdb de debug)
-          cd $PUBLISH_DIR
-          rm -f *.pdb *.dbg *.dsym
-          
-          # Pega o único arquivo que sobrar, que é nosso executável NativeAOT cru
-          BIN_FILE="plume-${{ matrix.rid }}"
-          
-          if [ -z "$BIN_FILE" ]; then
-            echo "Erro: Nenhum executável final encontrado no diretório $PUBLISH_DIR!"
+          if [ -z "$BIN_PATH" ]; then
+            echo "Erro: O executável plume-${{ matrix.rid }} não foi encontrado em nenhuma pasta!"
             exit 1
           fi
           
-          # Move e renomeia para a raiz para o Upload
-          mv "$BIN_FILE" "../../../../${{ matrix.final_name }}"
+          PUBLISH_DIR=$(dirname "$BIN_PATH")
+          echo "Executável encontrado na pasta: $PUBLISH_DIR"
+          
+          # Entra no diretório e limpa os arquivos de debug gerados
+          cd "$PUBLISH_DIR"
+          rm -f *.pdb *.dbg *.dsym
+          
+          # Move o executável com o nome final direto para a raiz absoluta do repositório
+          mv "plume-${{ matrix.rid }}" "$GITHUB_WORKSPACE/${{ matrix.final_name }}"
 
       - name: Upload Raw Artifact
         uses: actions/upload-artifact@v4
