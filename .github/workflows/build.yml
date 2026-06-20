@@ -81,7 +81,7 @@ jobs:
   build:
     needs: versioning
     strategy:
-      fail-fast: false
+      fail-fast: true # FIX: Agora se um deles quebrar (ex: arm64), a pipeline cancela todos os outros
       matrix:
         include:
           - os: ubuntu-22.04
